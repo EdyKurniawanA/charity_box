@@ -1,5 +1,8 @@
 #include "esp_camera.h"
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>           // <-- Add this line
+#include <UniversalTelegramBot.h>
 
 //
 // WARNING!!! PSRAM IC required for UXGA resolution and high JPEG quality
@@ -39,8 +42,136 @@
 const char *ssid = "esp32-iot";
 const char *password = "esp32-iot";
 
+// Telegram Bot credentials
+const char* botToken = "7950984672:AAGn7jHn4fqM12_8pwgR6wqFZzz_GNpvyYo";
+const char* chatId = "5638142909";
+WiFiClientSecure client;
+UniversalTelegramBot bot(botToken, client);
+
 void startCameraServer();
 void setupLedFlash(int pin);
+
+// --- Helper callbacks for streaming photo ---
+camera_fb_t *fb_g = nullptr;
+int fb_pos = 0;
+
+bool moreDataAvailable() {
+  return fb_pos < fb_g->len;
+}
+
+uint8_t getNextByte() {
+  return fb_g->buf[fb_pos++];
+}
+
+unsigned char* getNextBuffer() {
+  return nullptr; // Not used, but required by API
+}
+
+int resetFunc() {
+  fb_pos = 0;
+  return 0;
+}
+// --- End helper callbacks ---
+
+void sendGreetingToTelegram() {
+  String greeting = "🟢 ESP32-CAM Online!\n";
+  greeting += "Welcome to Kotak Amal Nurul Ilmi Bot.\n";
+  greeting += "\nSupported commands (from Arduino Mega):\n";
+  greeting += "- FINGERPRINT_READY\n";
+  greeting += "- FINGERPRINT_NOT_READY\n";
+  greeting += "- VIBRATION_ALERT\n";
+  greeting += "- ACCESS_GRANTED:<id>\n";
+  greeting += "- ACCESS_DENIED\n";
+  greeting += "- DOOR_UNLOCKED\n";
+  greeting += "- DOOR_LOCKED\n";
+  greeting += "- DOOR_ACCESS_DENIED\n";
+  greeting += "- CAPTURE_PHOTO\n";
+  sendTelegram(greeting);
+}
+
+unsigned long lastBotCheck = 0;
+const unsigned long botCheckInterval = 2000; // 2 seconds
+String pendingCommand = "";
+
+void handleNewMessages(int numNewMessages) {
+  for (int i = 0; i < numNewMessages; i++) {
+    String chat_id = String(bot.messages[i].chat_id);
+    String text = bot.messages[i].text;
+    text.trim();
+    if (text == "/capture") {
+      Serial.println("[Bot] /capture command received");
+      captureAndSendPhoto();
+    } else if (text == "/gps") {
+      Serial.println("[Bot] /gps command received");
+      Serial.println("REQUEST_GPS"); // Send request to Mega
+      pendingCommand = "gps";
+    }
+  }
+}
+
+void captureAndSendPhoto() {
+  camera_fb_t *fb = esp_camera_fb_get();
+  if (!fb) {
+    sendTelegram("Failed to capture image");
+    return;
+  }
+  fb_g = fb;
+  fb_pos = 0;
+  String result = bot.sendPhotoByBinary(
+    String(chatId),
+    "image/jpeg",
+    fb->len,
+    moreDataAvailable,
+    getNextByte,
+    getNextBuffer,
+    resetFunc
+  );
+  esp_camera_fb_return(fb);
+  if (result.indexOf("true") > 0) {
+    Serial.println("[Bot] Photo sent to Telegram");
+  } else {
+    Serial.println("[Bot] Failed to send photo");
+    sendTelegram("Failed to send photo to Telegram");
+  }
+}
+
+void sendTelegram(String message) {
+  if (WiFi.status() == WL_CONNECTED) {
+    bool sent = bot.sendMessage(chatId, message, "");
+    if (sent) {
+      Serial.print("[Telegram] Sent: ");
+      Serial.println(message);
+    } else {
+      Serial.println("[Telegram] Failed to send message");
+    }
+  } else {
+    Serial.println("[Telegram] WiFi not connected, cannot send message");
+  }
+}
+
+void sendIPToTelegram() {
+  String ip = WiFi.localIP().toString();
+  String msg = "🌐 ESP32-CAM IP: <a href=\"http://" + ip + ":81/stream\">http://" + ip + ":81/stream</a>\n";
+  msg += "Click the link to view the camera stream.\n\n";
+  msg += "Use the buttons below to send commands.";
+  String keyboard = "{\"inline_keyboard\":[[";
+  keyboard += "{\"text\":\"Capture Photo\",\"callback_data\":\"/capture\"},";
+  keyboard += "{\"text\":\"Get GPS\",\"callback_data\":\"/gps\"}]]}";
+  String payload = "chat_id=" + String(chatId) + "&text=" + msg + "&parse_mode=HTML&reply_markup=" + keyboard;
+  String url = "https://api.telegram.org/bot" + String(botToken) + "/sendMessage";
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http; // <-- Use HTTPClient, not HttpClient
+  http.begin(client, url);
+  http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+  int httpCode = http.POST(payload);
+  if (httpCode > 0) {
+    Serial.println("[Telegram] IP address sent to chat");
+  } else {
+    Serial.println("[Telegram] Failed to send IP address");
+  }
+  http.end();
+}
 
 void setup() {
   Serial.begin(115200);
@@ -133,16 +264,24 @@ void setup() {
   setupLedFlash(LED_GPIO_NUM);
 #endif
 
+  // Connect to WiFi
+  Serial.print("Connecting to WiFi");
   WiFi.begin(ssid, password);
   WiFi.setSleep(false);
-
-  Serial.print("WiFi connecting");
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
   Serial.println("");
   Serial.println("WiFi connected");
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+
+  client.setInsecure(); // For Telegram HTTPS
+  Serial.println("Telegram Bot ready.");
+
+  sendGreetingToTelegram();
+  sendIPToTelegram();
 
   startCameraServer();
 
@@ -152,6 +291,30 @@ void setup() {
 }
 
 void loop() {
-  // Do nothing. Everything is done in another task by the web server
-  delay(10000);
+  // Listen for Serial commands from Arduino Mega
+  if (Serial.available()) {
+    String command = Serial.readStringUntil('\n');
+    command.trim();
+    if (command.length() > 0) {
+      if (command.startsWith("GPS:")) {
+        // GPS:<lat>,<lng>,<alt>
+        if (pendingCommand == "gps") {
+          sendTelegram("📍 GPS Location: " + command.substring(4));
+          pendingCommand = "";
+        }
+      } else {
+        sendTelegram(command);
+      }
+    }
+  }
+  // Poll Telegram bot for new messages
+  if (millis() - lastBotCheck > botCheckInterval) {
+    int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+    while (numNewMessages) {
+      handleNewMessages(numNewMessages);
+      numNewMessages = bot.getUpdates(bot.last_message_received + 1);
+    }
+    lastBotCheck = millis();
+  }
+  delay(10); // Small delay to avoid busy loop
 }

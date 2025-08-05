@@ -59,7 +59,7 @@ public:
   
   void sendAccessResult(bool granted, int fingerID = 0) {
     if (granted) {
-      sendSMS(SMS_ACCESS_GRANTED + " - ID: " + String(fingerID));
+      sendSMS(String(SMS_ACCESS_GRANTED) + " - ID: " + String(fingerID));
     } else {
       sendSMS(SMS_ACCESS_DENIED);
     }

@@ -2,12 +2,12 @@
 #define TELEGRAM_CONFIG_H
 
 // WiFi Configuration
-#define WIFI_SSID "YOUR_WIFI_SSID"
-#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+#define WIFI_SSID "esp32-iot"
+#define WIFI_PASSWORD "esp32-iot"
 
 // Telegram Bot Configuration
 #define BOT_TOKEN "7950984672:AAGn7jHn4fqM12_8pwgR6wqFZzz_GNpvyYo"
-#define CHAT_ID "5638142909"
+#define CHAT_ID "767286229"
 
 // Bot Commands
 #define CMD_CAMERA "/camera"
