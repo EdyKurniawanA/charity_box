@@ -24,21 +24,66 @@ Ini adalah proyek sistem keamanan IoT menggunakan Arduino Mega, ESP32 Cam, Teleg
 
 ## Struktur File
 ```
-├── sketch_jun30c/
-│   └── sketch_jun30c.ino          # Program utama Arduino Mega
+├── arduino_mega_main/
+│   ├── arduino_mega_main.ino       # Program utama Arduino Mega
+│   └── sms_backup.h                # Konfigurasi SMS backup
 ├── CameraWebServer/
 │   ├── CameraWebServer.ino         # Program ESP32 Cam hybrid (Web + Telegram)
 │   ├── app_httpd.cpp               # Implementasi web server
 │   ├── camera_pins.h               # Definisi pin kamera
-│   └── camera_index.h              # HTML antarmuka web
-├── config/
+│   ├── camera_index.h              # HTML antarmuka web
+│   ├── partitions.csv              # Konfigurasi partisi ESP32
+│   └── ci.json                     # Konfigurasi CI/CD
+├── telegram_config/
 │   └── telegram_config.h           # Konfigurasi Telegram Bot
-├── gps/
-│   └── gps.ino                     # Program testing GPS (legacy)
-├── sim800l_v2/
-│   └── sim800l_v2.ino             # Program testing SIM800L (legacy)
+├── camera_pins.h                   # Definisi pin kamera global
+├── camera_test_simple.ino          # Program testing kamera sederhana
+├── simple_bridge.ps1               # Script PowerShell untuk bridge debugging
 └── README.md                       # File ini
 ```
+
+## Penjelasan File Khusus
+
+### simple_bridge.ps1
+File `simple_bridge.ps1` adalah **script PowerShell untuk debugging dan testing komunikasi** antara Arduino Mega dan ESP32-CAM dalam proyek Kotak Amal Nurul Ilmi.
+
+#### Fungsi Utama:
+1. **Bridge Manual untuk Testing**: Script ini membantu developer melakukan testing manual komunikasi antara dua perangkat tanpa perlu mengimplementasikan komunikasi serial otomatis.
+2. **Debugging Komunikasi**: Memungkinkan developer untuk melihat dan memverifikasi pesan yang dikirim dari Arduino Mega ke ESP32-CAM.
+3. **Testing Sensor**: Memudahkan testing berbagai sensor (sidik jari, getaran, GPS) dengan melihat output pesan secara real-time.
+
+#### Cara Penggunaan:
+```powershell
+.\simple_bridge.ps1 COM11 COM7
+```
+
+#### Cara Kerja:
+1. **Parameter Input**: Script menerima dua parameter COM port:
+   - `$ArduinoPort` (default: COM11) - Port Arduino Mega
+   - `$ESP32Port` (default: COM7) - Port ESP32-CAM
+
+2. **Validasi Port**: Memeriksa apakah kedua COM port tersedia dan dapat diakses.
+
+3. **Instruksi Manual**: Memberikan panduan step-by-step untuk:
+   - Membuka Serial Monitor Arduino Mega (9600 baud)
+   - Membuka Serial Monitor ESP32-CAM (115200 baud)
+   - Menyalin pesan dari Arduino ke ESP32 secara manual
+
+4. **Format Pesan**: Script mendeteksi pesan dengan format `[To ESP32-CAM]: [PESAN]` dari output Arduino.
+
+#### Contoh Pesan yang Dapat Ditest:
+- `[To ESP32-CAM]: FINGERPRINT_READY` - Sensor sidik jari siap
+- `[To ESP32-CAM]: VIBRATION_ALERT` - Peringatan getaran terdeteksi
+- `[To ESP32-CAM]: ACCESS_GRANTED:1` - Akses diberikan untuk user ID 1
+- `[To ESP32-CAM]: DOOR_UNLOCKED` - Pintu telah dibuka
+
+#### Kapan Digunakan:
+- **Development Phase**: Saat mengembangkan dan testing fitur baru
+- **Debugging**: Ketika ada masalah komunikasi antara Arduino dan ESP32
+- **Sensor Testing**: Untuk memverifikasi sensor berfungsi dengan benar
+- **Integration Testing**: Sebelum implementasi komunikasi otomatis
+
+Script ini sangat berguna untuk fase development karena memungkinkan developer untuk memahami alur komunikasi dan memastikan semua komponen berfungsi dengan baik sebelum implementasi final.
 
 ## Instruksi Setup
 
