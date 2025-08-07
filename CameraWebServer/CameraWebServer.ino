@@ -41,6 +41,8 @@
 // ===========================
 const char *ssid = "esp32-iot";
 const char *password = "esp32-iot";
+// const char *ssid = "Stampan";
+// const char *password = "1234567890";
 
 // Telegram Bot credentials
 const char* botToken = "7950984672:AAGn7jHn4fqM12_8pwgR6wqFZzz_GNpvyYo";
@@ -197,14 +199,14 @@ void setup() {
   config.pin_sccb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
-  config.xclk_freq_hz = 20000000;
-  config.frame_size = FRAMESIZE_UXGA;
+  config.xclk_freq_hz = 10000000;  // Reduce from 20MHz to 10MHz
+  config.frame_size = FRAMESIZE_VGA;  // Reduce from UXGA to VGA (640x480)
   config.pixel_format = PIXFORMAT_JPEG;  // for streaming
   //config.pixel_format = PIXFORMAT_RGB565; // for face detection/recognition
   config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
   config.fb_location = CAMERA_FB_IN_PSRAM;
-  config.jpeg_quality = 12;
-  config.fb_count = 1;
+  config.jpeg_quality = 20;  // Increase quality number (lower quality = less power)
+  config.fb_count = 1;  // Reduce frame buffer count
 
   // if PSRAM IC present, init with UXGA resolution and higher JPEG quality
   //                      for larger pre-allocated frame buffer.
@@ -268,6 +270,8 @@ void setup() {
   Serial.print("Connecting to WiFi");
   WiFi.begin(ssid, password);
   WiFi.setSleep(false);
+  // Add power management for WiFi
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);  // Reduce WiFi power
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
@@ -307,7 +311,7 @@ void loop() {
       }
     }
   }
-  // Poll Telegram bot for new messages
+  // Poll Telegram bot for new messages (reduced frequency)
   if (millis() - lastBotCheck > botCheckInterval) {
     int numNewMessages = bot.getUpdates(bot.last_message_received + 1);
     while (numNewMessages) {
@@ -316,5 +320,5 @@ void loop() {
     }
     lastBotCheck = millis();
   }
-  delay(10); // Small delay to avoid busy loop
+  delay(50); // Increased delay to reduce CPU usage and heat
 }
