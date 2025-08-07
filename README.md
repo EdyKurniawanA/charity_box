@@ -1,66 +1,66 @@
-# Kotak Amal Nurul Ilmi - IoT Security System
+# Kotak Amal Nurul Ilmi - Sistem Keamanan IoT
 
-## Overview
-This is an IoT security system project using Arduino Mega, ESP32 Cam, Telegram Bot, and various sensors. The system provides fingerprint authentication, GPS tracking, live camera streaming, and remote monitoring capabilities.
+## Gambaran Umum
+Ini adalah proyek sistem keamanan IoT menggunakan Arduino Mega, ESP32 Cam, Telegram Bot, dan berbagai sensor. Sistem ini menyediakan autentikasi sidik jari, pelacakan GPS, streaming kamera langsung, dan kemampuan pemantauan jarak jauh.
 
-## Components Used
-- **Arduino Mega 2560** - Main controller
-- **ESP32 Cam** - Camera module for live streaming
-- **Fingerprint Sensor (R307)** - Biometric authentication
-- **GPS NEO-6M** - Location tracking
-- **LCD I2C 16x2** - Status display
-- **Vibration Sensor** - Motion detection
-- **Buzzer** - Audio alerts
-- **Relay Module** - Door lock control
-- **SIM800L** - Backup SMS communication
+## Komponen yang Digunakan
+- **Arduino Mega 2560** - Kontroler utama
+- **ESP32 Cam** - Modul kamera untuk streaming langsung
+- **Sensor Sidik Jari (R307)** - Autentikasi biometrik
+- **GPS NEO-6M** - Pelacakan lokasi
+- **LCD I2C 16x2** - Tampilan status
+- **Sensor Getaran** - Deteksi gerakan
+- **Buzzer** - Peringatan suara
+- **Modul Relay** - Kontrol kunci pintu
+- **SIM800L** - Komunikasi SMS cadangan
 
-## Features
-1. **Islamic Greeting** - LCD displays "Assalamualaikum, User" on startup
-2. **Fingerprint Authentication** - Secure access control with Telegram notifications
-3. **GPS Tracking** - Remote location monitoring via Telegram
-4. **Hybrid Camera System** - ESP32 Cam with Web interface + Telegram control
-5. **Vibration Detection** - Motion alerts sent to Telegram
-6. **Status Monitoring** - Real-time system status updates
+## Fitur
+1. **Salam Islami** - LCD menampilkan "Assalamualaikum, User" saat startup
+2. **Autentikasi Sidik Jari** - Kontrol akses aman dengan notifikasi Telegram
+3. **Pelacakan GPS** - Pemantauan lokasi jarak jauh melalui Telegram
+4. **Sistem Kamera Hybrid** - ESP32 Cam dengan antarmuka Web + kontrol Telegram
+5. **Deteksi Getaran** - Peringatan gerakan dikirim ke Telegram
+6. **Pemantauan Status** - Pembaruan status sistem real-time
 
-## File Structure
+## Struktur File
 ```
 ├── sketch_jun30c/
-│   └── sketch_jun30c.ino          # Main Arduino Mega program
+│   └── sketch_jun30c.ino          # Program utama Arduino Mega
 ├── CameraWebServer/
-│   ├── CameraWebServer.ino         # Hybrid ESP32 Cam program (Web + Telegram)
-│   ├── app_httpd.cpp               # Web server implementation
-│   ├── camera_pins.h               # Camera pin definitions
-│   └── camera_index.h              # Web interface HTML
+│   ├── CameraWebServer.ino         # Program ESP32 Cam hybrid (Web + Telegram)
+│   ├── app_httpd.cpp               # Implementasi web server
+│   ├── camera_pins.h               # Definisi pin kamera
+│   └── camera_index.h              # HTML antarmuka web
 ├── config/
-│   └── telegram_config.h           # Telegram Bot configuration
+│   └── telegram_config.h           # Konfigurasi Telegram Bot
 ├── gps/
-│   └── gps.ino                     # GPS testing program (legacy)
+│   └── gps.ino                     # Program testing GPS (legacy)
 ├── sim800l_v2/
-│   └── sim800l_v2.ino             # SIM800L testing program (legacy)
-└── README.md                       # This file
+│   └── sim800l_v2.ino             # Program testing SIM800L (legacy)
+└── README.md                       # File ini
 ```
 
-## Setup Instructions
+## Instruksi Setup
 
-### 1. Hardware Connections
+### 1. Koneksi Hardware
 
-#### Arduino Mega Connections:
-- **GPS Module**: TX → Pin 17, RX → Pin 16
-- **Fingerprint Sensor**: TX → Pin 19, RX → Pin 18
+#### Koneksi Arduino Mega:
+- **Modul GPS**: TX → Pin 17, RX → Pin 16
+- **Sensor Sidik Jari**: TX → Pin 19, RX → Pin 18
 - **LCD I2C**: SDA → Pin 20, SCL → Pin 21
 - **Buzzer**: Pin 5
 - **Relay**: Pin 4
-- **Vibration Sensor**: A0
+- **Sensor Getaran**: A0
 - **ESP32 Cam Enable**: Pin 3
 
-#### ESP32 Cam Connections:
-- **Camera**: Built-in OV2640 sensor
-- **WiFi**: Built-in WiFi module
-- **Control**: Receives commands from Arduino Mega via GPIO
+#### Koneksi ESP32 Cam:
+- **Kamera**: Sensor OV2640 built-in
+- **WiFi**: Modul WiFi built-in
+- **Kontrol**: Menerima perintah dari Arduino Mega melalui GPIO
 
-### 2. Software Setup
+### 2. Setup Software
 
-#### Required Libraries:
+#### Library yang Diperlukan:
 ```cpp
 // Arduino Mega
 #include <LiquidCrystal_I2C.h>
@@ -79,162 +79,162 @@ This is an IoT security system project using Arduino Mega, ESP32 Cam, Telegram B
 #include <ArduinoJson.h>
 ```
 
-#### Installation:
-1. Open Arduino IDE
-2. Go to Tools → Manage Libraries
-3. Install the following libraries:
+#### Instalasi:
+1. Buka Arduino IDE
+2. Buka Tools → Manage Libraries
+3. Install library berikut:
    - LiquidCrystal_I2C
    - TinyGPS++
    - Adafruit Fingerprint Sensor
    - ArduinoJson
 
-### 3. Telegram Bot Setup
+### 3. Setup Telegram Bot
 
-1. **Create a Telegram Bot**:
-   - Message @BotFather on Telegram
-   - Send `/newbot`
-   - Follow instructions to create your bot
-   - Save the bot token
+1. **Buat Telegram Bot**:
+   - Kirim pesan ke @BotFather di Telegram
+   - Kirim `/newbot`
+   - Ikuti instruksi untuk membuat bot Anda
+   - Simpan token bot
 
-2. **Get Chat ID**:
-   - Message your bot
-   - Visit: `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates`
-   - Find your chat ID in the response
+2. **Dapatkan Chat ID**:
+   - Kirim pesan ke bot Anda
+   - Kunjungi: `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates`
+   - Temukan chat ID Anda dalam respons
 
-3. **Update Configuration**:
+3. **Update Konfigurasi**:
    - Edit `config/telegram_config.h`
-   - Replace placeholder values with your actual credentials
+   - Ganti nilai placeholder dengan kredensial Anda yang sebenarnya
 
-### 4. WiFi Configuration
+### 4. Konfigurasi WiFi
 
-Update the WiFi credentials in both programs:
+Update kredensial WiFi di kedua program:
 ```cpp
 const char* ssid = "YOUR_WIFI_SSID";
 const char* password = "YOUR_WIFI_PASSWORD";
 ```
 
-### 5. Upload Programs
+### 5. Upload Program
 
 1. **Arduino Mega**:
-   - Connect Arduino Mega to computer
-   - Open `sketch_jun30c/sketch_jun30c.ino`
-   - Select board: Arduino Mega 2560
-   - Upload the program
+   - Hubungkan Arduino Mega ke komputer
+   - Buka `sketch_jun30c/sketch_jun30c.ino`
+   - Pilih board: Arduino Mega 2560
+   - Upload program
 
 2. **ESP32 Cam**:
-   - Connect ESP32 Cam to computer
-   - Open `CameraWebServer/CameraWebServer.ino`
-   - Select board: ESP32 Dev Module
-   - Upload the program
+   - Hubungkan ESP32 Cam ke komputer
+   - Buka `CameraWebServer/CameraWebServer.ino`
+   - Pilih board: ESP32 Dev Module
+   - Upload program
 
-## Telegram Bot Commands
+## Perintah Telegram Bot
 
-### Main System Commands:
-- `/camera` - Toggle ESP32 Cam streaming
-- `/gps` - Get current GPS location
-- `/status` - Get system status
-- `/door` - Manually toggle door lock (emergency access)
+### Perintah Sistem Utama:
+- `/camera` - Toggle streaming ESP32 Cam
+- `/gps` - Dapatkan lokasi GPS saat ini
+- `/status` - Dapatkan status sistem
+- `/door` - Toggle kunci pintu secara manual (akses darurat)
 
-### ESP32 Cam Commands (Telegram):
-- `/capture` - Take a photo and send to Telegram
-- `/status` - Get camera status via Telegram
-- `/stream_start` - Start streaming monitoring
-- `/stream_stop` - Stop streaming monitoring
-- `/help` - Show available commands
+### Perintah ESP32 Cam (Telegram):
+- `/capture` - Ambil foto dan kirim ke Telegram
+- `/status` - Dapatkan status kamera melalui Telegram
+- `/stream_start` - Mulai pemantauan streaming
+- `/stream_stop` - Hentikan pemantauan streaming
+- `/help` - Tampilkan perintah yang tersedia
 
-### ESP32 Cam Web Interface:
-- **http://[ESP32-IP]** - Main camera interface
-- **http://[ESP32-IP]/stream** - Live video stream
-- **http://[ESP32-IP]/capture** - Take a photo
-- **http://[ESP32-IP]/status** - Camera status
-- **http://[ESP32-IP]/control** - Camera controls (brightness, contrast, etc.)
+### Antarmuka Web ESP32 Cam:
+- **http://[ESP32-IP]** - Antarmuka kamera utama
+- **http://[ESP32-IP]/stream** - Stream video langsung
+- **http://[ESP32-IP]/capture** - Ambil foto
+- **http://[ESP32-IP]/status** - Status kamera
+- **http://[ESP32-IP]/control** - Kontrol kamera (kecerahan, kontras, dll.)
 
-## System Flow
+## Alur Sistem
 
 1. **Startup**:
-   - LCD displays "Assalamualaikum, User"
-   - Checks fingerprint sensor status
-   - Connects to WiFi
-   - Sends startup message to Telegram
+   - LCD menampilkan "Assalamualaikum, User"
+   - Memeriksa status sensor sidik jari
+   - Menghubungkan ke WiFi
+   - Mengirim pesan startup ke Telegram
 
-2. **Fingerprint Authentication**:
-   - User places finger on sensor
-   - System validates fingerprint
-   - Sends result to Telegram
-   - Controls relay (door lock)
-   - **Registered User**: Door unlocks for 3 seconds, then locks automatically
-   - **Unregistered User**: Door remains locked, access denied
+2. **Autentikasi Sidik Jari**:
+   - Pengguna menempatkan jari pada sensor
+   - Sistem memvalidasi sidik jari
+   - Mengirim hasil ke Telegram
+   - Mengontrol relay (kunci pintu)
+   - **Pengguna Terdaftar**: Pintu terbuka selama 3 detik, kemudian terkunci otomatis
+   - **Pengguna Tidak Terdaftar**: Pintu tetap terkunci, akses ditolak
 
-3. **Remote Control**:
-   - User sends commands via Telegram
-   - System executes commands
-   - Sends confirmation messages
+3. **Kontrol Jarak Jauh**:
+   - Pengguna mengirim perintah melalui Telegram
+   - Sistem menjalankan perintah
+   - Mengirim pesan konfirmasi
 
-4. **Monitoring**:
-   - Vibration detection
-   - GPS tracking
-   - Status updates
-   - Live camera streaming
+4. **Pemantauan**:
+   - Deteksi getaran
+   - Pelacakan GPS
+   - Pembaruan status
+   - Streaming kamera langsung
 
 ## Troubleshooting
 
-### Common Issues:
+### Masalah Umum:
 
-1. **WiFi Connection Failed**:
-   - Check WiFi credentials
-   - Ensure strong signal
-   - Restart system
+1. **Koneksi WiFi Gagal**:
+   - Periksa kredensial WiFi
+   - Pastikan sinyal kuat
+   - Restart sistem
 
-2. **Fingerprint Not Working**:
-   - Clean sensor surface
-   - Re-enroll fingerprints
-   - Check wiring connections
+2. **Sidik Jari Tidak Berfungsi**:
+   - Bersihkan permukaan sensor
+   - Daftar ulang sidik jari
+   - Periksa koneksi kabel
 
-3. **GPS No Signal**:
-   - Move to open area
-   - Wait for satellite lock
-   - Check antenna connection
+3. **GPS Tidak Ada Sinyal**:
+   - Pindah ke area terbuka
+   - Tunggu kunci satelit
+   - Periksa koneksi antena
 
-4. **Telegram Messages Not Sending**:
-   - Verify bot token and chat ID
-   - Check internet connection
-   - Ensure bot is not blocked
+4. **Pesan Telegram Tidak Terkirim**:
+   - Verifikasi token bot dan chat ID
+   - Periksa koneksi internet
+   - Pastikan bot tidak diblokir
 
-### Debug Information:
-- Serial Monitor shows detailed debug information
-- Check Serial Monitor for error messages
-- Use `/status` command to check system health
+### Informasi Debug:
+- Serial Monitor menampilkan informasi debug detail
+- Periksa Serial Monitor untuk pesan error
+- Gunakan perintah `/status` untuk memeriksa kesehatan sistem
 
-## Security Features
+## Fitur Keamanan
 
-1. **Biometric Authentication** - Secure fingerprint access
-2. **Remote Monitoring** - Real-time status updates
-3. **Motion Detection** - Vibration sensor alerts
-4. **Location Tracking** - GPS coordinates
-5. **Live Video** - ESP32 Cam streaming
-6. **Backup Communication** - SIM800L SMS fallback
+1. **Autentikasi Biometrik** - Akses sidik jari yang aman
+2. **Pemantauan Jarak Jauh** - Pembaruan status real-time
+3. **Deteksi Gerakan** - Peringatan sensor getaran
+4. **Pelacakan Lokasi** - Koordinat GPS
+5. **Video Langsung** - Streaming ESP32 Cam
+6. **Komunikasi Cadangan** - Fallback SMS SIM800L
 
-## Customization
+## Kustomisasi
 
-### Adding New Commands:
-1. Add command definition in `telegram_config.h`
-2. Add command handler in main program
-3. Update help message
+### Menambah Perintah Baru:
+1. Tambah definisi perintah di `telegram_config.h`
+2. Tambah handler perintah di program utama
+3. Update pesan bantuan
 
-### Modifying Messages:
-- Edit message constants in `telegram_config.h`
-- Update LCD display messages in main program
+### Memodifikasi Pesan:
+- Edit konstanta pesan di `telegram_config.h`
+- Update pesan tampilan LCD di program utama
 
-### Adding New Sensors:
-1. Define pin connections
-2. Add sensor library
-3. Create sensor functions
-4. Integrate with Telegram notifications
+### Menambah Sensor Baru:
+1. Definisikan koneksi pin
+2. Tambah library sensor
+3. Buat fungsi sensor
+4. Integrasikan dengan notifikasi Telegram
 
-## Support
+## Dukungan
 
-For technical support or questions, please refer to the Arduino and ESP32 documentation, or contact the development team.
+Untuk dukungan teknis atau pertanyaan, silakan merujuk ke dokumentasi Arduino dan ESP32, atau hubungi tim pengembangan.
 
-## License
+## Lisensi
 
-This project is developed for educational and charitable purposes. Please respect the Islamic values and principles in its use. 
+Proyek ini dikembangkan untuk tujuan pendidikan dan amal. Silakan hormati nilai-nilai dan prinsip Islam dalam penggunaannya. 
