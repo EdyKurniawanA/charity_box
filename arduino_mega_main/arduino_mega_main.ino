@@ -128,33 +128,59 @@ void checkFingerprintStatus() {
   
   finger.begin(57600);
   
-  // First check if fingerprint module is detected/connected
-  Serial.println("\n==============================");
-  Serial.println("[FINGERPRINT] Module detected");
-  sendToESP32("Fingerprint module detected");
-  lcd.setCursor(0, 0);
-  lcd.print("Fingerprint");
-  lcd.setCursor(0, 1);
-  lcd.print("module detected");
-  delay(3000);
-  
   // Then check if it's ready
   if (finger.verifyPassword()) {
     fingerprintReady = true;
+
+      // First check if fingerprint module is detected/connected  // First check if fingerprint module is detected/connected
+    Serial.println("\n==============================");
+    Serial.println("[FINGERPRINT] Module detected");
+    sendToESP32("Fingerprint module detected");
+    
+    lcd.clear();  // Clear before new message
+    lcd.setCursor(0, 0);
+    lcd.print("Fingerprint");
+    lcd.setCursor(0, 1);
+    lcd.print("module detected");
+    delay(3000);
+
     Serial.println("[FINGERPRINT] Status: READY");
     sendToESP32("Fingerprint siap");
+    
+    lcd.clear();  // Clear before new message
     lcd.setCursor(0, 0);
     lcd.print("Fingerprint siap");
+    lcd.setCursor(0, 1);
+    lcd.print("                ");  // Clear second line
+    
     sendToESP32("FINGERPRINT_READY");
+    // smsBackup.sendFingerprintStatus(true);
   } else {
     fingerprintReady = false;
+
+      // First check if fingerprint module is detected/connected
+    Serial.println("\n==============================");
+    Serial.println("[FINGERPRINT] Module not detected");
+    sendToESP32("Fingerprint module not detected");
+    
+    lcd.clear();  // Clear before new message
+    lcd.setCursor(0, 0);
+    lcd.print("Fingerprint");
+    lcd.setCursor(0, 1);
+    lcd.print("module not detected");
+    delay(3000);
+
     Serial.println("[FINGERPRINT] Status: NOT READY");
     sendToESP32("Fingerprint error");
+    
+    lcd.clear();  // Clear before new message
     lcd.setCursor(0, 0);
-    lcd.print("Fingerprint ");
+    lcd.print("Fingerprint");
     lcd.setCursor(0, 1);
     lcd.print("belum siap");
+    
     sendToESP32("FINGERPRINT_NOT_READY");
+    // smsBackup.sendFingerprintStatus(false);
   }
   Serial.println("==============================\n");
   delay(3000);
