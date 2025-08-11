@@ -39,14 +39,14 @@
 // ===========================
 // Enter your WiFi credentials
 // ===========================
-const char *ssid = "esp32-iot";
-const char *password = "esp32-iot";
-// const char *ssid = "Stampan";
-// const char *password = "1234567890";
+// const char *ssid = "esp32-iot";
+// const char *password = "esp32-iot";
+const char *ssid = "Stampan";
+const char *password = "1234567890";
 
 // Telegram Bot credentials
 const char* botToken = "7950984672:AAGn7jHn4fqM12_8pwgR6wqFZzz_GNpvyYo";
-const char* chatId = "5638142909";
+const char* chatId = "8084143922";
 WiFiClientSecure client;
 UniversalTelegramBot bot(botToken, client);
 

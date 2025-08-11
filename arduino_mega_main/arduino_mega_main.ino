@@ -132,10 +132,9 @@ void checkFingerprintStatus() {
   if (finger.verifyPassword()) {
     fingerprintReady = true;
 
-      // First check if fingerprint module is detected/connected  // First check if fingerprint module is detected/connected
+    // First check if fingerprint module is detected/connected
     Serial.println("\n==============================");
     Serial.println("[FINGERPRINT] Module detected");
-    sendToESP32("Fingerprint module detected");
     
     lcd.clear();  // Clear before new message
     lcd.setCursor(0, 0);
@@ -145,7 +144,6 @@ void checkFingerprintStatus() {
     delay(3000);
 
     Serial.println("[FINGERPRINT] Status: READY");
-    sendToESP32("Fingerprint siap");
     
     lcd.clear();  // Clear before new message
     lcd.setCursor(0, 0);
@@ -153,15 +151,17 @@ void checkFingerprintStatus() {
     lcd.setCursor(0, 1);
     lcd.print("                ");  // Clear second line
     
-    sendToESP32("FINGERPRINT_READY");
+    // Consolidated message for ESP32-CAM
+    String statusMessage = "FINGERPRINT_STATUS: Module detected, Status: READY";
+    sendToESP32(statusMessage);
+    
     // smsBackup.sendFingerprintStatus(true);
   } else {
     fingerprintReady = false;
 
-      // First check if fingerprint module is detected/connected
+    // First check if fingerprint module is detected/connected
     Serial.println("\n==============================");
     Serial.println("[FINGERPRINT] Module not detected");
-    sendToESP32("Fingerprint module not detected");
     
     lcd.clear();  // Clear before new message
     lcd.setCursor(0, 0);
@@ -171,7 +171,6 @@ void checkFingerprintStatus() {
     delay(3000);
 
     Serial.println("[FINGERPRINT] Status: NOT READY");
-    sendToESP32("Fingerprint error");
     
     lcd.clear();  // Clear before new message
     lcd.setCursor(0, 0);
@@ -179,7 +178,10 @@ void checkFingerprintStatus() {
     lcd.setCursor(0, 1);
     lcd.print("belum siap");
     
-    sendToESP32("FINGERPRINT_NOT_READY");
+    // Consolidated message for ESP32-CAM
+    String statusMessage = "FINGERPRINT_STATUS: Module not detected, Status: NOT READY";
+    sendToESP32(statusMessage);
+    
     // smsBackup.sendFingerprintStatus(false);
   }
   Serial.println("==============================\n");
@@ -257,15 +259,15 @@ void fingerprintScan() {
     Serial.println("[FINGERPRINT] Access: GRANTED");
     Serial.print("[FINGERPRINT] ID: ");
     Serial.println(finger.fingerID);
-    sendToESP32("Akses diberikan");
+    
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("Finger Detected");
     lcd.setCursor(0, 1);
     lcd.print("Access Granted");
-    sendToESP32("ACCESS_GRANTED:" + String(finger.fingerID));
+    
     digitalWrite(RELAY_PIN, LOW);    // relay aktif (buka solenoid)
-    sendToESP32("DOOR_UNLOCKED");
+    
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("Door Unlocked");
@@ -273,12 +275,17 @@ void fingerprintScan() {
     lcd.print("Access Granted");
     delay(3000);  // Keep door open for 3 seconds
     digitalWrite(RELAY_PIN, HIGH);   // relay nonaktif (tutup solenoid)
-    sendToESP32("DOOR_LOCKED");
+    
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("Door Locked");
     lcd.setCursor(0, 1);
     lcd.print("System Ready");
+    
+    // Consolidated message for ESP32-CAM
+    String accessMessage = "ACCESS_GRANTED: ID=" + String(finger.fingerID) + ", Door: Unlocked->Locked, Status: Success";
+    sendToESP32(accessMessage);
+    
     Serial.println("------------------------------\n");
   } else if (p == FINGERPRINT_NOTFOUND) {
     // Only print when finger is not found (not for every scan attempt)
@@ -286,14 +293,13 @@ void fingerprintScan() {
     Serial.println("[FINGERPRINT] Scan started");
     Serial.print("[FINGERPRINT] Access: DENIED. Code: ");
     Serial.println(p);
-    sendToESP32("Akses ditolak. Kode: " + String(p));
+    
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("Access Denied!");
     lcd.setCursor(0, 1);
     lcd.print("Wrong Fingerprint");
-    sendToESP32("ACCESS_DENIED");
-    sendToESP32("DOOR_ACCESS_DENIED");
+    
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("Access Denied!");
@@ -301,6 +307,11 @@ void fingerprintScan() {
     lcd.print("Door Locked");
     delay(3000);
     lcd.clear();
+    
+    // Consolidated message for ESP32-CAM
+    String accessMessage = "ACCESS_DENIED: Code=" + String(p) + ", Door: Locked, Status: Failed";
+    sendToESP32(accessMessage);
+    
     Serial.println("------------------------------\n");
   }
 }
@@ -319,19 +330,27 @@ void gpsNeo6() {
       Serial.println("\n******** GPS DATA ********");
       Serial.print("Latitude : ");
       Serial.println(gps.location.lat(), 6);
-      sendToESP32("Lat: " + String(gps.location.lat(), 6));
       Serial.print("Longitude: ");
       Serial.println(gps.location.lng(), 6);
-      sendToESP32("Lng: " + String(gps.location.lng(), 6));
       Serial.print("Altitude : ");
       Serial.print(gps.altitude.meters());
       Serial.println(" m");
-      sendToESP32("Alt: " + String(gps.altitude.meters()) + " m");
+      
+      // Consolidated GPS message for ESP32-CAM
+      String gpsMessage = "GPS_DATA: Lat=" + String(gps.location.lat(), 6) + 
+                         ", Lng=" + String(gps.location.lng(), 6) + 
+                         ", Alt=" + String(gps.altitude.meters()) + "m";
+      sendToESP32(gpsMessage);
+      
       Serial.println("**************************\n");
     } else {
       Serial.println("\n******** GPS DATA ********");
       Serial.println("GPS belum lock satelit..");
-      sendToESP32("GPS belum lock satelit..");
+      
+      // Consolidated GPS status message for ESP32-CAM
+      String gpsMessage = "GPS_STATUS: No satellite signal, GPS not locked";
+      sendToESP32(gpsMessage);
+      
       Serial.println("**************************\n");
     }
     lastGpsValid = currentGpsValid;
@@ -503,14 +522,18 @@ void enrollFingerprint(uint8_t id) {
   lcd.print(id);
   Serial.print("[ENROLL] Finger ID: ");
   Serial.println(id);
-  sendToESP32("Enroll Finger ID: " + String(id));
+  
+  // Consolidated enrollment start message
+  String enrollMessage = "ENROLL_START: ID=" + String(id) + ", Status: Starting enrollment";
+  sendToESP32(enrollMessage);
+  
   delay(3000);
   int p = -1;
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("Place finger...");
   Serial.println("[ENROLL] Place finger...");
-  sendToESP32("Place finger...");
+  
   while (p != FINGERPRINT_OK) {
     p = finger.getImage();
     if (p == FINGERPRINT_OK) break;
@@ -518,70 +541,85 @@ void enrollFingerprint(uint8_t id) {
       lcd.setCursor(0, 1);
       lcd.print("Waiting...     ");
       Serial.println("[ENROLL] Waiting for finger...");
-      sendToESP32("Waiting for finger...");
     } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
       lcd.setCursor(0, 1);
       lcd.print("Comm error     ");
       Serial.println("[ENROLL] Communication error");
-      sendToESP32("Communication error");
     } else if (p == FINGERPRINT_IMAGEFAIL) {
       lcd.setCursor(0, 1);
       lcd.print("Imaging error  ");
       Serial.println("[ENROLL] Imaging error");
-      sendToESP32("Imaging error");
     }
     delay(100);
   }
+  
   p = finger.image2Tz(1);
   if (p != FINGERPRINT_OK) {
     lcd.setCursor(0, 1);
     lcd.print("Image->Tz1 fail");
     Serial.println("[ENROLL] Image to template 1 failed");
-    sendToESP32("Image to template 1 failed");
+    
+    // Consolidated error message
+    String errorMessage = "ENROLL_ERROR: Step=Image2Tz1, Code=" + String(p) + ", Status: Failed";
+    sendToESP32(errorMessage);
+    
     delay(2000);
     Serial.println("==============================\n");
     return;
   }
+  
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("Remove finger  ");
   Serial.println("[ENROLL] Remove finger");
-  sendToESP32("Remove finger");
   delay(2000);
+  
   while (finger.getImage() != FINGERPRINT_NOFINGER);
+  
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("Place same fing");
   lcd.setCursor(0, 1);
   lcd.print("again...       ");
   Serial.println("[ENROLL] Place same finger again...");
-  sendToESP32("Place same finger again...");
+  
   p = -1;
   while (p != FINGERPRINT_OK) {
     p = finger.getImage();
     if (p == FINGERPRINT_OK) break;
     delay(100);
   }
+  
   p = finger.image2Tz(2);
   if (p != FINGERPRINT_OK) {
     lcd.setCursor(0, 1);
     lcd.print("Image->Tz2 fail");
     Serial.println("[ENROLL] Image to template 2 failed");
-    sendToESP32("Image to template 2 failed");
+    
+    // Consolidated error message
+    String errorMessage = "ENROLL_ERROR: Step=Image2Tz2, Code=" + String(p) + ", Status: Failed";
+    sendToESP32(errorMessage);
+    
     delay(2000);
     Serial.println("==============================\n");
     return;
   }
+  
   p = finger.createModel();
   if (p != FINGERPRINT_OK) {
     lcd.setCursor(0, 1);
     lcd.print("Model fail     ");
     Serial.println("[ENROLL] Model creation failed");
-    sendToESP32("Model creation failed");
+    
+    // Consolidated error message
+    String errorMessage = "ENROLL_ERROR: Step=CreateModel, Code=" + String(p) + ", Status: Failed";
+    sendToESP32(errorMessage);
+    
     delay(2000);
     Serial.println("==============================\n");
     return;
   }
+  
   p = finger.storeModel(id);
   if (p == FINGERPRINT_OK) {
     lcd.clear();
@@ -592,13 +630,20 @@ void enrollFingerprint(uint8_t id) {
     lcd.print(id);
     Serial.print("[ENROLL] Success! ID: ");
     Serial.println(id);
-    sendToESP32("Enroll Success! ID: " + String(id));
+    
+    // Consolidated success message
+    String successMessage = "ENROLL_SUCCESS: ID=" + String(id) + ", Status: Fingerprint enrolled successfully";
+    sendToESP32(successMessage);
+    
   } else {
     lcd.clear();
     lcd.setCursor(0, 0);
     lcd.print("Enroll Failed! ");
     Serial.println("[ENROLL] Failed!");
-    sendToESP32("Enroll Failed!");
+    
+    // Consolidated failure message
+    String failureMessage = "ENROLL_FAILED: ID=" + String(id) + ", Code=" + String(p) + ", Status: Storage failed";
+    sendToESP32(failureMessage);
   }
   delay(2000);
   Serial.println("==============================\n");
