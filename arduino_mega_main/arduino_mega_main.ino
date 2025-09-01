@@ -23,7 +23,8 @@
 TinyGPSPlus gps;
 char chr;
 
-// FINGERPRINT di Serial1 (RX1 = 19, TX1 = 18)
+// R308 FINGERPRINT MODULE di Serial1 (RX1 = 19, TX1 = 18)
+// R308 uses same VCC, GND, and Data pins but optimized for optical sensor
 Adafruit_Fingerprint finger(&Serial1);
 
 // LCD I2C 16x2 alamat 0x27
@@ -32,6 +33,11 @@ LiquidCrystal_I2C lcd(0x27, 20, 21);
 // VARIABEL
 int sensorVal = 0; // sensor getar
 bool fingerprintReady = false;
+
+// R308 specific variables
+unsigned long lastFingerprintCheck = 0;
+const unsigned long fingerprintCheckInterval = 100; // R308 needs more frequent checks
+bool fingerDetected = false;
 
 // Add these variables at the top with other variables
 bool lastGpsValid = false;
@@ -44,7 +50,7 @@ void setup() {
   // Serial untuk debug
   Serial.begin(9600);
   Serial2.begin(9600);       // GPS
-  Serial1.begin(57600);      // Fingerprint
+  Serial1.begin(57600);      // R308 Fingerprint Module
   Serial3.begin(115200); // Serial3 for ESP32-CAM communication (TX3=14, RX3=15)
 
   pinMode(RELAY_PIN, OUTPUT);
@@ -67,6 +73,11 @@ void setup() {
   // Check fingerprint status
   checkFingerprintStatus();
   
+  // Configure R308 module if ready
+  if (fingerprintReady) {
+    configureR308();
+  }
+  
   // Initialize system
   // ESP32-CAM will handle WiFi and Telegram communication
   
@@ -87,36 +98,59 @@ void loop() {
     cmd.trim();
     if (cmd.startsWith("enroll")) {
       int id = cmd.substring(6).toInt();
-      if (id > 0) {
+      if (id > 0 && id <= 127) {
         enrollFingerprint(id);
       } else {
-        Serial.println("Invalid ID for enrollment.");
+        Serial.println("Invalid ID for enrollment. Use ID 1-127.");
+        sendToESP32("R308_ENROLL_ERROR: Invalid ID, must be 1-127");
       }
     }
     // Add manual command testing
     else if (cmd == "test_fingerprint") {
-      sendToESP32("FINGERPRINT_READY");
-      Serial.println("Sent: FINGERPRINT_READY");
+      sendToESP32("R308_FINGERPRINT_READY");
+      Serial.println("Sent: R308_FINGERPRINT_READY");
     }
     else if (cmd == "test_vibration") {
       sendToESP32("VIBRATION_ALERT");
       Serial.println("Sent: VIBRATION_ALERT");
     }
     else if (cmd == "test_access") {
-      sendToESP32("ACCESS_GRANTED:1");
-      Serial.println("Sent: ACCESS_GRANTED:1");
+      sendToESP32("R308_ACCESS_GRANTED:1");
+      Serial.println("Sent: R308_ACCESS_GRANTED:1");
     }
     else if (cmd == "test_door") {
       sendToESP32("DOOR_UNLOCKED");
       Serial.println("Sent: DOOR_UNLOCKED");
     }
+    else if (cmd == "r308_info") {
+      getR308Info();
+    }
+    else if (cmd == "template_count") {
+      getTemplateCount();
+    }
+    else if (cmd == "clear_all") {
+      clearAllTemplates();
+    }
+    else if (cmd.startsWith("delete")) {
+      int id = cmd.substring(6).toInt();
+      if (id > 0 && id <= 127) {
+        deleteFingerprint(id);
+      } else {
+        Serial.println("Invalid ID for deletion. Use ID 1-127.");
+        sendToESP32("R308_DELETE_ERROR: Invalid ID, must be 1-127");
+      }
+    }
     else if (cmd == "help") {
       Serial.println("Available test commands:");
-      Serial.println("  test_fingerprint - Send FINGERPRINT_READY");
+      Serial.println("  test_fingerprint - Send R308_FINGERPRINT_READY");
       Serial.println("  test_vibration - Send VIBRATION_ALERT");
-      Serial.println("  test_access - Send ACCESS_GRANTED:1");
+      Serial.println("  test_access - Send R308_ACCESS_GRANTED:1");
       Serial.println("  test_door - Send DOOR_UNLOCKED");
-      Serial.println("  enroll <id> - Enroll fingerprint");
+      Serial.println("  enroll <id> - Enroll R308 fingerprint");
+      Serial.println("  delete <id> - Delete R308 fingerprint");
+      Serial.println("  r308_info - Get R308 module information");
+      Serial.println("  template_count - Get number of stored templates");
+      Serial.println("  clear_all - Clear all stored templates");
     }
   }
 }
@@ -124,9 +158,12 @@ void loop() {
 void checkFingerprintStatus() {
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("Cek Fingerprint...");
+  lcd.print("Cek R308 Module...");
   
   finger.begin(57600);
+  
+  // R308 specific: Add delay for module initialization
+  delay(1000);
   
   // Then check if it's ready
   if (finger.verifyPassword()) {
@@ -134,25 +171,25 @@ void checkFingerprintStatus() {
 
     // First check if fingerprint module is detected/connected
     Serial.println("\n==============================");
-    Serial.println("[FINGERPRINT] Module detected");
+    Serial.println("[R308 FINGERPRINT] Module detected");
     
     lcd.clear();  // Clear before new message
     lcd.setCursor(0, 0);
-    lcd.print("Fingerprint");
+    lcd.print("R308 Module");
     lcd.setCursor(0, 1);
-    lcd.print("module detected");
+    lcd.print("detected");
     delay(3000);
 
-    Serial.println("[FINGERPRINT] Status: READY");
+    Serial.println("[R308 FINGERPRINT] Status: READY");
     
     lcd.clear();  // Clear before new message
     lcd.setCursor(0, 0);
-    lcd.print("Fingerprint siap");
+    lcd.print("R308 siap");
     lcd.setCursor(0, 1);
     lcd.print("                ");  // Clear second line
     
     // Consolidated message for ESP32-CAM
-    String statusMessage = "FINGERPRINT_STATUS: Module detected, Status: READY";
+    String statusMessage = "R308_STATUS: Module detected, Status: READY";
     sendToESP32(statusMessage);
     
     // smsBackup.sendFingerprintStatus(true);
@@ -161,25 +198,25 @@ void checkFingerprintStatus() {
 
     // First check if fingerprint module is detected/connected
     Serial.println("\n==============================");
-    Serial.println("[FINGERPRINT] Module not detected");
+    Serial.println("[R308 FINGERPRINT] Module not detected");
     
     lcd.clear();  // Clear before new message
     lcd.setCursor(0, 0);
-    lcd.print("Fingerprint");
+    lcd.print("R308 Module");
     lcd.setCursor(0, 1);
-    lcd.print("module not detected");
+    lcd.print("not detected");
     delay(3000);
 
-    Serial.println("[FINGERPRINT] Status: NOT READY");
+    Serial.println("[R308 FINGERPRINT] Status: NOT READY");
     
     lcd.clear();  // Clear before new message
     lcd.setCursor(0, 0);
-    lcd.print("Fingerprint");
+    lcd.print("R308");
     lcd.setCursor(0, 1);
     lcd.print("belum siap");
     
     // Consolidated message for ESP32-CAM
-    String statusMessage = "FINGERPRINT_STATUS: Module not detected, Status: NOT READY";
+    String statusMessage = "R308_STATUS: Module not detected, Status: NOT READY";
     sendToESP32(statusMessage);
     
     // smsBackup.sendFingerprintStatus(false);
@@ -237,6 +274,12 @@ void sensorVibra() {
 }
 
 void fingerprintScan() {
+  // R308 optimized: Check timing for better responsiveness
+  if (millis() - lastFingerprintCheck < fingerprintCheckInterval) {
+    return;
+  }
+  lastFingerprintCheck = millis();
+  
   lcd.setCursor(0, 0);
   lcd.print("Scan Sidik Jari");
   lcd.setCursor(0, 1);
@@ -244,20 +287,28 @@ void fingerprintScan() {
 
   uint8_t p = finger.getImage();
   if (p != FINGERPRINT_OK) {
-    delay(10);
+    // R308 specific: Different delay for optical sensor
+    if (p == FINGERPRINT_NOFINGER) {
+      fingerDetected = false;
+    }
+    delay(50); // R308 needs slightly longer delay
     return;
   }
+  
+  // R308 specific: Set finger detected flag
+  fingerDetected = true;
+  
   p = finger.image2Tz();
   if (p != FINGERPRINT_OK) {
-    delay(10);
+    delay(50); // R308 needs slightly longer delay
     return;
   }
   p = finger.fingerSearch();
   if (p == FINGERPRINT_OK) {
     Serial.println("\n------------------------------");
-    Serial.println("[FINGERPRINT] Scan started");
-    Serial.println("[FINGERPRINT] Access: GRANTED");
-    Serial.print("[FINGERPRINT] ID: ");
+    Serial.println("[R308 FINGERPRINT] Scan started");
+    Serial.println("[R308 FINGERPRINT] Access: GRANTED");
+    Serial.print("[R308 FINGERPRINT] ID: ");
     Serial.println(finger.fingerID);
     
     lcd.clear();
@@ -283,15 +334,15 @@ void fingerprintScan() {
     lcd.print("System Ready");
     
     // Consolidated message for ESP32-CAM
-    String accessMessage = "ACCESS_GRANTED: ID=" + String(finger.fingerID) + ", Door: Unlocked->Locked, Status: Success";
+    String accessMessage = "R308_ACCESS_GRANTED: ID=" + String(finger.fingerID) + ", Door: Unlocked->Locked, Status: Success";
     sendToESP32(accessMessage);
     
     Serial.println("------------------------------\n");
   } else if (p == FINGERPRINT_NOTFOUND) {
     // Only print when finger is not found (not for every scan attempt)
     Serial.println("\n------------------------------");
-    Serial.println("[FINGERPRINT] Scan started");
-    Serial.print("[FINGERPRINT] Access: DENIED. Code: ");
+    Serial.println("[R308 FINGERPRINT] Scan started");
+    Serial.print("[R308 FINGERPRINT] Access: DENIED. Code: ");
     Serial.println(p);
     
     lcd.clear();
@@ -309,7 +360,7 @@ void fingerprintScan() {
     lcd.clear();
     
     // Consolidated message for ESP32-CAM
-    String accessMessage = "ACCESS_DENIED: Code=" + String(p) + ", Door: Locked, Status: Failed";
+    String accessMessage = "R308_ACCESS_DENIED: Code=" + String(p) + ", Door: Locked, Status: Failed";
     sendToESP32(accessMessage);
     
     Serial.println("------------------------------\n");
@@ -512,19 +563,19 @@ void gpsNeo6() {
 //   }
 // }
 
-// Add this function to enroll a new fingerprint
+// Add this function to enroll a new fingerprint for R308
 void enrollFingerprint(uint8_t id) {
   Serial.println("\n==============================");
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("Enroll Finger ID:");
+  lcd.print("Enroll R308 ID:");
   lcd.setCursor(0, 1);
   lcd.print(id);
-  Serial.print("[ENROLL] Finger ID: ");
+  Serial.print("[R308 ENROLL] Finger ID: ");
   Serial.println(id);
   
   // Consolidated enrollment start message
-  String enrollMessage = "ENROLL_START: ID=" + String(id) + ", Status: Starting enrollment";
+  String enrollMessage = "R308_ENROLL_START: ID=" + String(id) + ", Status: Starting enrollment";
   sendToESP32(enrollMessage);
   
   delay(3000);
@@ -532,7 +583,7 @@ void enrollFingerprint(uint8_t id) {
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("Place finger...");
-  Serial.println("[ENROLL] Place finger...");
+  Serial.println("[R308 ENROLL] Place finger...");
   
   while (p != FINGERPRINT_OK) {
     p = finger.getImage();
@@ -540,27 +591,27 @@ void enrollFingerprint(uint8_t id) {
     if (p == FINGERPRINT_NOFINGER) {
       lcd.setCursor(0, 1);
       lcd.print("Waiting...     ");
-      Serial.println("[ENROLL] Waiting for finger...");
+      Serial.println("[R308 ENROLL] Waiting for finger...");
     } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
       lcd.setCursor(0, 1);
       lcd.print("Comm error     ");
-      Serial.println("[ENROLL] Communication error");
+      Serial.println("[R308 ENROLL] Communication error");
     } else if (p == FINGERPRINT_IMAGEFAIL) {
       lcd.setCursor(0, 1);
       lcd.print("Imaging error  ");
-      Serial.println("[ENROLL] Imaging error");
+      Serial.println("[R308 ENROLL] Imaging error");
     }
-    delay(100);
+    delay(150); // R308 needs longer delay for optical sensor
   }
   
   p = finger.image2Tz(1);
   if (p != FINGERPRINT_OK) {
     lcd.setCursor(0, 1);
     lcd.print("Image->Tz1 fail");
-    Serial.println("[ENROLL] Image to template 1 failed");
+    Serial.println("[R308 ENROLL] Image to template 1 failed");
     
     // Consolidated error message
-    String errorMessage = "ENROLL_ERROR: Step=Image2Tz1, Code=" + String(p) + ", Status: Failed";
+    String errorMessage = "R308_ENROLL_ERROR: Step=Image2Tz1, Code=" + String(p) + ", Status: Failed";
     sendToESP32(errorMessage);
     
     delay(2000);
@@ -571,7 +622,7 @@ void enrollFingerprint(uint8_t id) {
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("Remove finger  ");
-  Serial.println("[ENROLL] Remove finger");
+  Serial.println("[R308 ENROLL] Remove finger");
   delay(2000);
   
   while (finger.getImage() != FINGERPRINT_NOFINGER);
@@ -581,23 +632,23 @@ void enrollFingerprint(uint8_t id) {
   lcd.print("Place same fing");
   lcd.setCursor(0, 1);
   lcd.print("again...       ");
-  Serial.println("[ENROLL] Place same finger again...");
+  Serial.println("[R308 ENROLL] Place same finger again...");
   
   p = -1;
   while (p != FINGERPRINT_OK) {
     p = finger.getImage();
     if (p == FINGERPRINT_OK) break;
-    delay(100);
+    delay(150); // R308 needs longer delay for optical sensor
   }
   
   p = finger.image2Tz(2);
   if (p != FINGERPRINT_OK) {
     lcd.setCursor(0, 1);
     lcd.print("Image->Tz2 fail");
-    Serial.println("[ENROLL] Image to template 2 failed");
+    Serial.println("[R308 ENROLL] Image to template 2 failed");
     
     // Consolidated error message
-    String errorMessage = "ENROLL_ERROR: Step=Image2Tz2, Code=" + String(p) + ", Status: Failed";
+    String errorMessage = "R308_ENROLL_ERROR: Step=Image2Tz2, Code=" + String(p) + ", Status: Failed";
     sendToESP32(errorMessage);
     
     delay(2000);
@@ -609,10 +660,10 @@ void enrollFingerprint(uint8_t id) {
   if (p != FINGERPRINT_OK) {
     lcd.setCursor(0, 1);
     lcd.print("Model fail     ");
-    Serial.println("[ENROLL] Model creation failed");
+    Serial.println("[R308 ENROLL] Model creation failed");
     
     // Consolidated error message
-    String errorMessage = "ENROLL_ERROR: Step=CreateModel, Code=" + String(p) + ", Status: Failed";
+    String errorMessage = "R308_ENROLL_ERROR: Step=CreateModel, Code=" + String(p) + ", Status: Failed";
     sendToESP32(errorMessage);
     
     delay(2000);
@@ -624,28 +675,229 @@ void enrollFingerprint(uint8_t id) {
   if (p == FINGERPRINT_OK) {
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print("Enroll Success!");
+    lcd.print("R308 Enroll Success!");
     lcd.setCursor(0, 1);
     lcd.print("ID: ");
     lcd.print(id);
-    Serial.print("[ENROLL] Success! ID: ");
+    Serial.print("[R308 ENROLL] Success! ID: ");
     Serial.println(id);
     
     // Consolidated success message
-    String successMessage = "ENROLL_SUCCESS: ID=" + String(id) + ", Status: Fingerprint enrolled successfully";
+    String successMessage = "R308_ENROLL_SUCCESS: ID=" + String(id) + ", Status: Fingerprint enrolled successfully";
     sendToESP32(successMessage);
     
   } else {
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print("Enroll Failed! ");
-    Serial.println("[ENROLL] Failed!");
+    lcd.print("R308 Enroll Failed! ");
+    Serial.println("[R308 ENROLL] Failed!");
     
     // Consolidated failure message
-    String failureMessage = "ENROLL_FAILED: ID=" + String(id) + ", Code=" + String(p) + ", Status: Storage failed";
+    String failureMessage = "R308_ENROLL_FAILED: ID=" + String(id) + ", Code=" + String(p) + ", Status: Storage failed";
     sendToESP32(failureMessage);
   }
   delay(2000);
+  Serial.println("==============================\n");
+}
+
+// R308 specific configuration function
+void configureR308() {
+  Serial.println("\n==============================");
+  Serial.println("[R308] Configuring module...");
+  
+  // Get system parameters for R308 optical sensor
+  uint8_t p = finger.getParameters();
+  if (p == FINGERPRINT_OK) {
+    Serial.println("[R308] Parameters retrieved successfully");
+    Serial.print("[R308] Status register: 0x");
+    Serial.println(finger.status_reg, HEX);
+    Serial.print("[R308] System ID: 0x");
+    Serial.println(finger.system_id, HEX);
+    Serial.print("[R308] Capacity: ");
+    Serial.println(finger.capacity);
+    Serial.print("[R308] Security level: ");
+    Serial.println(finger.security_level);
+    Serial.print("[R308] Device address: 0x");
+    Serial.println(finger.device_addr, HEX);
+    Serial.print("[R308] Packet size: ");
+    Serial.println(finger.packet_len);
+    Serial.print("[R308] Baud rate: ");
+    Serial.println(finger.baud_rate);
+  } else {
+    Serial.println("[R308] Failed to get parameters");
+  }
+  
+  Serial.println("[R308] Configuration complete");
+  Serial.println("==============================\n");
+}
+
+// Delete fingerprint function for R308
+void deleteFingerprint(uint8_t id) {
+  Serial.println("\n==============================");
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Delete R308 ID:");
+  lcd.setCursor(0, 1);
+  lcd.print(id);
+  Serial.print("[R308 DELETE] Finger ID: ");
+  Serial.println(id);
+  
+  // Send deletion start message
+  String deleteMessage = "R308_DELETE_START: ID=" + String(id) + ", Status: Starting deletion";
+  sendToESP32(deleteMessage);
+  
+  delay(2000);
+  
+  uint8_t p = finger.deleteModel(id);
+  if (p == FINGERPRINT_OK) {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Delete Success!");
+    lcd.setCursor(0, 1);
+    lcd.print("ID: ");
+    lcd.print(id);
+    Serial.print("[R308 DELETE] Success! ID: ");
+    Serial.println(id);
+    
+    // Send success message
+    String successMessage = "R308_DELETE_SUCCESS: ID=" + String(id) + ", Status: Fingerprint deleted successfully";
+    sendToESP32(successMessage);
+    
+  } else {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Delete Failed!");
+    lcd.setCursor(0, 1);
+    lcd.print("Error Code: ");
+    lcd.print(p);
+    Serial.print("[R308 DELETE] Failed! Error: ");
+    Serial.println(p);
+    
+    // Send failure message
+    String failureMessage = "R308_DELETE_FAILED: ID=" + String(id) + ", Code=" + String(p) + ", Status: Deletion failed";
+    sendToESP32(failureMessage);
+  }
+  
+  delay(2000);
+  Serial.println("==============================\n");
+}
+
+// Get R308 module information
+void getR308Info() {
+  Serial.println("\n==============================");
+  Serial.println("[R308] Getting module information...");
+  
+  uint8_t p = finger.getParameters();
+  if (p == FINGERPRINT_OK) {
+    Serial.println("[R308] Module information:");
+    Serial.print("  Status register: 0x");
+    Serial.println(finger.status_reg, HEX);
+    Serial.print("  System ID: 0x");
+    Serial.println(finger.system_id, HEX);
+    Serial.print("  Capacity: ");
+    Serial.println(finger.capacity);
+    Serial.print("  Security level: ");
+    Serial.println(finger.security_level);
+    Serial.print("  Device address: 0x");
+    Serial.println(finger.device_addr, HEX);
+    Serial.print("  Packet size: ");
+    Serial.println(finger.packet_len);
+    Serial.print("  Baud rate: ");
+    Serial.println(finger.baud_rate);
+    
+    // Get template count
+    p = finger.getTemplateCount();
+    if (p == FINGERPRINT_OK) {
+      Serial.print("  Templates stored: ");
+      Serial.println(finger.templateCount);
+    }
+    
+    // Send info to ESP32-CAM
+    String infoMessage = "R308_INFO: Capacity=" + String(finger.capacity) + 
+                        ", Security=" + String(finger.security_level) + 
+                        ", PacketSize=" + String(finger.packet_len) + 
+                        ", BaudRate=" + String(finger.baud_rate) +
+                        ", Templates=" + String(finger.templateCount);
+    sendToESP32(infoMessage);
+  } else {
+    Serial.println("[R308] Failed to get module information");
+    sendToESP32("R308_INFO_ERROR: Failed to retrieve module parameters");
+  }
+  
+  Serial.println("==============================\n");
+}
+
+// Get template count function
+void getTemplateCount() {
+  Serial.println("\n==============================");
+  Serial.println("[R308] Getting template count...");
+  
+  uint8_t p = finger.getTemplateCount();
+  if (p == FINGERPRINT_OK) {
+    Serial.print("[R308] Templates stored: ");
+    Serial.println(finger.templateCount);
+    
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Templates: ");
+    lcd.print(finger.templateCount);
+    lcd.setCursor(0, 1);
+    lcd.print("Capacity: ");
+    lcd.print(finger.capacity);
+    
+    // Send to ESP32-CAM
+    String countMessage = "R308_TEMPLATE_COUNT: " + String(finger.templateCount) + "/" + String(finger.capacity);
+    sendToESP32(countMessage);
+  } else {
+    Serial.println("[R308] Failed to get template count");
+    sendToESP32("R308_TEMPLATE_COUNT_ERROR: Failed to retrieve count");
+  }
+  
+  delay(3000);
+  Serial.println("==============================\n");
+}
+
+// Clear all templates function
+void clearAllTemplates() {
+  Serial.println("\n==============================");
+  Serial.println("[R308] Clearing all templates...");
+  
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Clear All");
+  lcd.setCursor(0, 1);
+  lcd.print("Templates...");
+  
+  // Send clear start message
+  sendToESP32("R308_CLEAR_START: Clearing all templates");
+  
+  uint8_t p = finger.emptyDatabase();
+  if (p == FINGERPRINT_OK) {
+    Serial.println("[R308] All templates cleared successfully");
+    
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("All Templates");
+    lcd.setCursor(0, 1);
+    lcd.print("Cleared!");
+    
+    // Send success message
+    sendToESP32("R308_CLEAR_SUCCESS: All templates cleared successfully");
+  } else {
+    Serial.println("[R308] Failed to clear templates");
+    
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Clear Failed!");
+    lcd.setCursor(0, 1);
+    lcd.print("Error Code: ");
+    lcd.print(p);
+    
+    // Send failure message
+    sendToESP32("R308_CLEAR_FAILED: Error code " + String(p));
+  }
+  
+  delay(3000);
   Serial.println("==============================\n");
 }
 

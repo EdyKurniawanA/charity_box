@@ -1,4 +1,4 @@
-#include "esp_camera.h"
+#include <esp_camera.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>           // <-- Add this line
@@ -39,14 +39,14 @@
 // ===========================
 // Enter your WiFi credentials
 // ===========================
-// const char *ssid = "esp32-iot";
-// const char *password = "esp32-iot";
-const char *ssid = "Stampan";
-const char *password = "1234567890";
+const char *ssid = "esp32-iot";
+const char *password = "esp32iot";
+// const char *ssid = "Stampan";
+// const char *password = "1234567890";
 
 // Telegram Bot credentials
 const char* botToken = "7950984672:AAGn7jHn4fqM12_8pwgR6wqFZzz_GNpvyYo";
-const char* chatId = "8084143922";
+const char* chatId = "7950984672";
 WiFiClientSecure client;
 UniversalTelegramBot bot(botToken, client);
 
@@ -78,16 +78,27 @@ int resetFunc() {
 void sendGreetingToTelegram() {
   String greeting = "🟢 ESP32-CAM Online!\n";
   greeting += "Welcome to Kotak Amal Nurul Ilmi Bot.\n";
-  greeting += "\nSupported commands (from Arduino Mega):\n";
-  greeting += "- FINGERPRINT_READY\n";
-  greeting += "- FINGERPRINT_NOT_READY\n";
+  greeting += "\nSupported commands:\n";
+  greeting += "/capture - Capture and send photo\n";
+  greeting += "/gps - Get GPS location\n";
+  greeting += "/enroll <id> - Register new fingerprint (ID 1-127)\n";
+  greeting += "/delete <id> - Delete fingerprint (ID 1-127)\n";
+  greeting += "/status - Get system status\n";
+  greeting += "/help - Show help message\n";
+  greeting += "\nCommands from Arduino Mega:\n";
+  greeting += "- R308_FINGERPRINT_READY\n";
+  greeting += "- R308_FINGERPRINT_NOT_READY\n";
   greeting += "- VIBRATION_ALERT\n";
-  greeting += "- ACCESS_GRANTED:<id>\n";
-  greeting += "- ACCESS_DENIED\n";
+  greeting += "- R308_ACCESS_GRANTED:<id>\n";
+  greeting += "- R308_ACCESS_DENIED\n";
   greeting += "- DOOR_UNLOCKED\n";
   greeting += "- DOOR_LOCKED\n";
-  greeting += "- DOOR_ACCESS_DENIED\n";
-  greeting += "- CAPTURE_PHOTO\n";
+  greeting += "- R308_ENROLL_START\n";
+  greeting += "- R308_ENROLL_SUCCESS\n";
+  greeting += "- R308_ENROLL_FAILED\n";
+  greeting += "- R308_DELETE_START\n";
+  greeting += "- R308_DELETE_SUCCESS\n";
+  greeting += "- R308_DELETE_FAILED\n";
   sendTelegram(greeting);
 }
 
@@ -100,6 +111,7 @@ void handleNewMessages(int numNewMessages) {
     String chat_id = String(bot.messages[i].chat_id);
     String text = bot.messages[i].text;
     text.trim();
+    
     if (text == "/capture") {
       Serial.println("[Bot] /capture command received");
       captureAndSendPhoto();
@@ -107,6 +119,18 @@ void handleNewMessages(int numNewMessages) {
       Serial.println("[Bot] /gps command received");
       Serial.println("REQUEST_GPS"); // Send request to Mega
       pendingCommand = "gps";
+    } else if (text.startsWith("/enroll")) {
+      Serial.println("[Bot] /enroll command received");
+      handleEnrollCommand(text);
+    } else if (text.startsWith("/delete")) {
+      Serial.println("[Bot] /delete command received");
+      handleDeleteCommand(text);
+    } else if (text == "/status") {
+      Serial.println("[Bot] /status command received");
+      sendSystemStatus();
+    } else if (text == "/help") {
+      Serial.println("[Bot] /help command received");
+      sendHelpMessage();
     }
   }
 }
@@ -151,6 +175,95 @@ void sendTelegram(String message) {
   }
 }
 
+void handleEnrollCommand(String text) {
+  // Parse /enroll <id> command
+  int spaceIndex = text.indexOf(' ');
+  if (spaceIndex == -1) {
+    sendTelegram("❌ Usage: /enroll <id>\nExample: /enroll 1\nID range: 1-127");
+    return;
+  }
+  
+  String idStr = text.substring(spaceIndex + 1);
+  int id = idStr.toInt();
+  
+  if (id < 1 || id > 127) {
+    sendTelegram("❌ Invalid ID. Please use ID between 1-127");
+    return;
+  }
+  
+  // Send enrollment command to Arduino Mega
+  String enrollCommand = "enroll " + String(id);
+  Serial.println(enrollCommand);
+  
+  sendTelegram("🔄 Starting fingerprint enrollment for ID: " + String(id) + "\n\n" +
+               "Please follow the instructions on the LCD display.\n" +
+               "1. Place your finger on the sensor\n" +
+               "2. Remove finger when prompted\n" +
+               "3. Place the same finger again\n" +
+               "4. Wait for confirmation");
+}
+
+void handleDeleteCommand(String text) {
+  // Parse /delete <id> command
+  int spaceIndex = text.indexOf(' ');
+  if (spaceIndex == -1) {
+    sendTelegram("❌ Usage: /delete <id>\nExample: /delete 1\nID range: 1-127");
+    return;
+  }
+  
+  String idStr = text.substring(spaceIndex + 1);
+  int id = idStr.toInt();
+  
+  if (id < 1 || id > 127) {
+    sendTelegram("❌ Invalid ID. Please use ID between 1-127");
+    return;
+  }
+  
+  // Send deletion command to Arduino Mega
+  String deleteCommand = "delete " + String(id);
+  Serial.println(deleteCommand);
+  
+  sendTelegram("🗑️ Starting fingerprint deletion for ID: " + String(id) + "\n\n" +
+               "This will permanently remove the fingerprint from the system.");
+}
+
+void sendSystemStatus() {
+  String status = "📊 System Status:\n\n";
+  status += "🟢 ESP32-CAM: Online\n";
+  status += "📶 WiFi: Connected\n";
+  status += "📷 Camera: Ready\n";
+  status += "🤖 Telegram Bot: Active\n";
+  status += "📱 R308 Fingerprint: Ready\n\n";
+  status += "Use /enroll <id> to register new fingerprints\n";
+  status += "Use /delete <id> to remove fingerprints\n";
+  status += "Use /capture to take photos\n";
+  status += "Use /gps to get location";
+  
+  sendTelegram(status);
+}
+
+void sendHelpMessage() {
+  String help = "🤖 Kotak Amal Nurul Ilmi Bot Help\n\n";
+  help += "📋 Available Commands:\n\n";
+  help += "/enroll <id> - Register new fingerprint\n";
+  help += "   Example: /enroll 1\n";
+  help += "   ID range: 1-127\n\n";
+  help += "/delete <id> - Delete fingerprint\n";
+  help += "   Example: /delete 1\n";
+  help += "   ID range: 1-127\n\n";
+  help += "/capture - Take and send photo\n\n";
+  help += "/gps - Get current GPS location\n\n";
+  help += "/status - Get system status\n\n";
+  help += "/help - Show this help message\n\n";
+  help += "💡 Tips:\n";
+  help += "• Keep finger clean and dry for enrollment\n";
+  help += "• Press finger firmly on sensor\n";
+  help += "• Follow LCD instructions carefully\n";
+  help += "• Deletion is permanent and cannot be undone";
+  
+  sendTelegram(help);
+}
+
 void sendIPToTelegram() {
   String ip = WiFi.localIP().toString();
   String msg = "🌐 ESP32-CAM IP: <a href=\"http://" + ip + ":81/stream\">http://" + ip + ":81/stream</a>\n";
@@ -158,7 +271,11 @@ void sendIPToTelegram() {
   msg += "Use the buttons below to send commands.";
   String keyboard = "{\"inline_keyboard\":[[";
   keyboard += "{\"text\":\"Capture Photo\",\"callback_data\":\"/capture\"},";
-  keyboard += "{\"text\":\"Get GPS\",\"callback_data\":\"/gps\"}]]}";
+  keyboard += "{\"text\":\"Get GPS\",\"callback_data\":\"/gps\"}";
+  keyboard += "],[";
+  keyboard += "{\"text\":\"System Status\",\"callback_data\":\"/status\"},";
+  keyboard += "{\"text\":\"Help\",\"callback_data\":\"/help\"}";
+  keyboard += "]]}";
   String payload = "chat_id=" + String(chatId) + "&text=" + msg + "&parse_mode=HTML&reply_markup=" + keyboard;
   String url = "https://api.telegram.org/bot" + String(botToken) + "/sendMessage";
   WiFiClientSecure client;
@@ -306,7 +423,50 @@ void loop() {
           sendTelegram("📍 GPS Location: " + command.substring(4));
           pendingCommand = "";
         }
+      } else if (command.startsWith("R308_ENROLL_START:")) {
+        // Enrollment started
+        sendTelegram("🔄 " + command.substring(18));
+      } else if (command.startsWith("R308_ENROLL_SUCCESS:")) {
+        // Enrollment successful
+        sendTelegram("✅ " + command.substring(20));
+      } else if (command.startsWith("R308_ENROLL_FAILED:")) {
+        // Enrollment failed
+        sendTelegram("❌ " + command.substring(19));
+      } else if (command.startsWith("R308_ENROLL_ERROR:")) {
+        // Enrollment error
+        sendTelegram("⚠️ " + command.substring(18));
+      } else if (command.startsWith("R308_DELETE_START:")) {
+        // Deletion started
+        sendTelegram("🗑️ " + command.substring(18));
+      } else if (command.startsWith("R308_DELETE_SUCCESS:")) {
+        // Deletion successful
+        sendTelegram("✅ " + command.substring(20));
+      } else if (command.startsWith("R308_DELETE_FAILED:")) {
+        // Deletion failed
+        sendTelegram("❌ " + command.substring(19));
+      } else if (command.startsWith("R308_DELETE_ERROR:")) {
+        // Deletion error
+        sendTelegram("⚠️ " + command.substring(18));
+      } else if (command.startsWith("R308_ACCESS_GRANTED:")) {
+        // Access granted
+        sendTelegram("🔓 " + command.substring(20));
+      } else if (command.startsWith("R308_ACCESS_DENIED:")) {
+        // Access denied
+        sendTelegram("🚫 " + command.substring(19));
+      } else if (command.startsWith("R308_STATUS:")) {
+        // R308 status
+        sendTelegram("📱 " + command.substring(12));
+      } else if (command.startsWith("VIBRATION_ALERT")) {
+        // Vibration detected
+        sendTelegram("⚠️ Vibration detected! Possible tampering attempt.");
+      } else if (command.startsWith("DOOR_UNLOCKED")) {
+        // Door unlocked
+        sendTelegram("🔓 Door has been unlocked");
+      } else if (command.startsWith("DOOR_LOCKED")) {
+        // Door locked
+        sendTelegram("🔒 Door has been locked");
       } else {
+        // Generic command
         sendTelegram(command);
       }
     }
