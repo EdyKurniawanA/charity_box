@@ -92,13 +92,30 @@ void loop() {
   // handleTelegramCommands();
   // updateTelegramStatus();
   delay(500);
+  
+  // Send heartbeat every 30 seconds to show system is alive
+  static unsigned long lastHeartbeat = 0;
+  if (millis() - lastHeartbeat > 30000) { // 30 seconds
+    sendToESP32("R308_HEARTBEAT: System running normally");
+    lastHeartbeat = millis();
+  }
   // Add Serial command to trigger enrollment
-  if (Serial.available()) {
-    String cmd = Serial.readStringUntil('\n');
+  if (Serial3.available()) {
+    String cmd = Serial3.readStringUntil('\n');
     cmd.trim();
+    
+    // Debug: Print received command
+    Serial.print("[DEBUG] Received command: '");
+    Serial.print(cmd);
+    Serial.println("'");
+    
     if (cmd.startsWith("enroll")) {
+      Serial.println("[DEBUG] Processing enroll command");
       int id = cmd.substring(6).toInt();
+      Serial.print("[DEBUG] Extracted ID: ");
+      Serial.println(id);
       if (id > 0 && id <= 127) {
+        Serial.println("[DEBUG] Starting enrollment process");
         enrollFingerprint(id);
       } else {
         Serial.println("Invalid ID for enrollment. Use ID 1-127.");
@@ -132,13 +149,27 @@ void loop() {
       clearAllTemplates();
     }
     else if (cmd.startsWith("delete")) {
+      Serial.println("[DEBUG] Processing delete command");
       int id = cmd.substring(6).toInt();
+      Serial.print("[DEBUG] Extracted ID: ");
+      Serial.println(id);
       if (id > 0 && id <= 127) {
+        Serial.println("[DEBUG] Starting deletion process");
         deleteFingerprint(id);
       } else {
         Serial.println("Invalid ID for deletion. Use ID 1-127.");
         sendToESP32("R308_DELETE_ERROR: Invalid ID, must be 1-127");
       }
+    }
+    else if (cmd == "test_comm") {
+      Serial.println("[DEBUG] Communication test received");
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Comm Test OK");
+      lcd.setCursor(0, 1);
+      lcd.print("Serial Working");
+      sendToESP32("R308_COMM_TEST: Communication working");
+      delay(2000);
     }
     else if (cmd == "help") {
       Serial.println("Available test commands:");
@@ -151,6 +182,7 @@ void loop() {
       Serial.println("  r308_info - Get R308 module information");
       Serial.println("  template_count - Get number of stored templates");
       Serial.println("  clear_all - Clear all stored templates");
+      Serial.println("  test_comm - Test communication");
     }
   }
 }
@@ -158,7 +190,7 @@ void loop() {
 void checkFingerprintStatus() {
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("Cek R308 Module...");
+  lcd.print("Cek Modul R308...");
   
   finger.begin(57600);
   
