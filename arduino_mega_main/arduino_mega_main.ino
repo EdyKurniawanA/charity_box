@@ -1,9 +1,8 @@
-
 // LIBRARY
 #include <LiquidCrystal_I2C.h>
 #include <Wire.h>
 #include <SoftwareSerial.h>
-#include <TinyGPS++.h>
+#include <TinyGPSPlus.h>
 #include <Adafruit_Fingerprint.h>
 // #include <WiFi.h>
 // #include <HttpClient.h>
@@ -17,14 +16,11 @@
 #define VIBRA_PIN A0
 #define ESP32_CAM_ENABLE_PIN 3  // Pin to enable/disable ESP32 Cam
 
-// GPS → Serial2 (TX GPS ke RX 17, RX GPS ke TX 16)
-#define GPS_RX 17
-#define GPS_TX 16
+// GPS Configuration (matching gpd_neo_8m.ino)
+static const uint32_t GPSBaud = 9600;
 TinyGPSPlus gps;
-char chr;
 
-// R308 FINGERPRINT MODULE di Serial1 (RX1 = 19, TX1 = 18)
-// R308 uses same VCC, GND, and Data pins but optimized for optical sensor
+// FINGERPRINT di Serial1 (RX1 = 19, TX1 = 18)
 Adafruit_Fingerprint finger(&Serial1);
 
 // LCD I2C 16x2 alamat 0x27
@@ -34,23 +30,21 @@ LiquidCrystal_I2C lcd(0x27, 20, 21);
 int sensorVal = 0; // sensor getar
 bool fingerprintReady = false;
 
-// R308 specific variables
-unsigned long lastFingerprintCheck = 0;
-const unsigned long fingerprintCheckInterval = 100; // R308 needs more frequent checks
-bool fingerDetected = false;
-
 // Add these variables at the top with other variables
-bool lastGpsValid = false;
 unsigned long lastVibrationPrint = 0;
 const unsigned long vibrationPrintInterval = 2000; // 2 seconds between vibration prints
+
+// GPS request handling
+bool gpsRequested = false;
+unsigned long gpsRequestTime = 0;
 
 // Remove testing mode - we'll use direct Serial3 connection
 
 void setup() {
   // Serial untuk debug
-  Serial.begin(9600);
-  Serial2.begin(9600);       // GPS
-  Serial1.begin(57600);      // R308 Fingerprint Module
+  Serial.begin(115200);
+  Serial2.begin(GPSBaud);    // GPS (matching gpd_neo_8m.ino)
+  Serial1.begin(57600);      // Fingerprint
   Serial3.begin(115200); // Serial3 for ESP32-CAM communication (TX3=14, RX3=15)
 
   pinMode(RELAY_PIN, OUTPUT);
@@ -61,6 +55,7 @@ void setup() {
   // LCD
   Wire.begin();
   lcd.begin();
+  // lcd.init();
   lcd.backlight();
   
   // Display welcome message
@@ -73,10 +68,21 @@ void setup() {
   // Check fingerprint status
   checkFingerprintStatus();
   
-  // Configure R308 module if ready
-  if (fingerprintReady) {
-    configureR308();
-  }
+  // GPS Diagnostic information
+  Serial.println(F("=== GPS Neo 8M Diagnostic Tool ==="));
+  Serial.println(F("Hardware Serial2 connection (TX2-Pin16, RX2-Pin17)"));
+  Serial.println();
+  
+  Serial.println(F("Expected wiring:"));
+  Serial.println(F("GPS VCC (Red) -> Arduino 5V"));
+  Serial.println(F("GPS GND (Black) -> Arduino GND"));
+  Serial.println(F("GPS RX -> Arduino TX2 (Pin 16)"));
+  Serial.println(F("GPS TX -> Arduino RX2 (Pin 17)"));
+  Serial.println();
+  
+  Serial.println(F("Starting GPS diagnostics..."));
+  Serial.println(F("Listening for raw GPS data..."));
+  Serial.println();
   
   // Initialize system
   // ESP32-CAM will handle WiFi and Telegram communication
@@ -86,103 +92,102 @@ void setup() {
 }
 
 void loop() {
-  sensorVibra();
-  fingerprintScan();
+  // Process GPS data continuously (highest priority) - like in working diagnostic file
   gpsNeo6();
+  
+  // Process other functions only occasionally to avoid GPS interruption
+  static unsigned long lastSensorCheck = 0;
+  static unsigned long lastFingerprintCheck = 0;
+  
+  // Check vibration sensor every 100ms
+  if (millis() - lastSensorCheck > 100) {
+    sensorVibra();
+    lastSensorCheck = millis();
+  }
+  
+  // Check fingerprint every 200ms
+  if (millis() - lastFingerprintCheck > 200) {
+    fingerprintScan();
+    lastFingerprintCheck = millis();
+  }
+  
   // handleTelegramCommands();
   // updateTelegramStatus();
-  delay(500);
   
-  // Send heartbeat every 30 seconds to show system is alive
-  static unsigned long lastHeartbeat = 0;
-  if (millis() - lastHeartbeat > 30000) { // 30 seconds
-    sendToESP32("R308_HEARTBEAT: System running normally");
-    lastHeartbeat = millis();
-  }
-  // Add Serial command to trigger enrollment
+  // Check for GPS requests from ESP32-CAM
   if (Serial3.available()) {
-    String cmd = Serial3.readStringUntil('\n');
+    String command = Serial3.readStringUntil('\n');
+    command.trim();
+    if (command == "REQUEST_GPS") {
+      gpsRequested = true;
+      gpsRequestTime = millis();
+      Serial.println("[GPS] Request received from ESP32-CAM");
+    }
+  }
+  
+  // Check for GPS request timeout (30 seconds)
+  if (gpsRequested && millis() - gpsRequestTime > 30000) {
+    String gpsMessage = "GPS_STATUS: Request timeout - no GPS data available";
+    sendToESP32(gpsMessage);
+    Serial.println(F("[GPS] Request timeout - no GPS data available"));
+    gpsRequested = false;
+  }
+  
+  // No delay - let GPS process continuously
+  // Add Serial command to trigger enrollment
+  if (Serial.available()) {
+    String cmd = Serial.readStringUntil('\n');
     cmd.trim();
-    
-    // Debug: Print received command
-    Serial.print("[DEBUG] Received command: '");
-    Serial.print(cmd);
-    Serial.println("'");
-    
     if (cmd.startsWith("enroll")) {
-      Serial.println("[DEBUG] Processing enroll command");
       int id = cmd.substring(6).toInt();
-      Serial.print("[DEBUG] Extracted ID: ");
-      Serial.println(id);
-      if (id > 0 && id <= 127) {
-        Serial.println("[DEBUG] Starting enrollment process");
+      if (id > 0) {
         enrollFingerprint(id);
       } else {
-        Serial.println("Invalid ID for enrollment. Use ID 1-127.");
-        sendToESP32("R308_ENROLL_ERROR: Invalid ID, must be 1-127");
+        Serial.println("Invalid ID for enrollment.");
       }
     }
     // Add manual command testing
     else if (cmd == "test_fingerprint") {
-      sendToESP32("R308_FINGERPRINT_READY");
-      Serial.println("Sent: R308_FINGERPRINT_READY");
+      sendToESP32("FINGERPRINT_READY");
+      Serial.println("Sent: FINGERPRINT_READY");
     }
     else if (cmd == "test_vibration") {
       sendToESP32("VIBRATION_ALERT");
       Serial.println("Sent: VIBRATION_ALERT");
     }
     else if (cmd == "test_access") {
-      sendToESP32("R308_ACCESS_GRANTED:1");
-      Serial.println("Sent: R308_ACCESS_GRANTED:1");
+      sendToESP32("ACCESS_GRANTED:1");
+      Serial.println("Sent: ACCESS_GRANTED:1");
     }
     else if (cmd == "test_door") {
       sendToESP32("DOOR_UNLOCKED");
       Serial.println("Sent: DOOR_UNLOCKED");
     }
-    else if (cmd == "r308_info") {
-      getR308Info();
-    }
-    else if (cmd == "template_count") {
-      getTemplateCount();
-    }
-    else if (cmd == "clear_all") {
-      clearAllTemplates();
-    }
-    else if (cmd.startsWith("delete")) {
-      Serial.println("[DEBUG] Processing delete command");
-      int id = cmd.substring(6).toInt();
-      Serial.print("[DEBUG] Extracted ID: ");
-      Serial.println(id);
-      if (id > 0 && id <= 127) {
-        Serial.println("[DEBUG] Starting deletion process");
-        deleteFingerprint(id);
-      } else {
-        Serial.println("Invalid ID for deletion. Use ID 1-127.");
-        sendToESP32("R308_DELETE_ERROR: Invalid ID, must be 1-127");
+    else if (cmd == "gps_test") {
+      Serial.println("=== GPS ISOLATION TEST ===");
+      Serial.println("Disabling other functions for 30 seconds...");
+      Serial.println("GPS should work like in diagnostic file now");
+      unsigned long testStart = millis();
+      while (millis() - testStart < 30000) {
+        gpsNeo6();
       }
+      Serial.println("=== GPS TEST COMPLETE ===");
     }
-    else if (cmd == "test_comm") {
-      Serial.println("[DEBUG] Communication test received");
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print("Comm Test OK");
-      lcd.setCursor(0, 1);
-      lcd.print("Serial Working");
-      sendToESP32("R308_COMM_TEST: Communication working");
-      delay(2000);
+    else if (cmd == "request_gps") {
+      Serial.println("=== MANUAL GPS REQUEST ===");
+      gpsRequested = true;
+      gpsRequestTime = millis();
+      Serial.println("GPS request sent - waiting for valid data...");
     }
     else if (cmd == "help") {
       Serial.println("Available test commands:");
-      Serial.println("  test_fingerprint - Send R308_FINGERPRINT_READY");
+      Serial.println("  test_fingerprint - Send FINGERPRINT_READY");
       Serial.println("  test_vibration - Send VIBRATION_ALERT");
-      Serial.println("  test_access - Send R308_ACCESS_GRANTED:1");
+      Serial.println("  test_access - Send ACCESS_GRANTED:1");
       Serial.println("  test_door - Send DOOR_UNLOCKED");
-      Serial.println("  enroll <id> - Enroll R308 fingerprint");
-      Serial.println("  delete <id> - Delete R308 fingerprint");
-      Serial.println("  r308_info - Get R308 module information");
-      Serial.println("  template_count - Get number of stored templates");
-      Serial.println("  clear_all - Clear all stored templates");
-      Serial.println("  test_comm - Test communication");
+      Serial.println("  gps_test - Test GPS in isolation for 30 seconds");
+      Serial.println("  request_gps - Manually request GPS data");
+      Serial.println("  enroll <id> - Enroll fingerprint");
     }
   }
 }
@@ -190,12 +195,9 @@ void loop() {
 void checkFingerprintStatus() {
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("Cek Modul R308...");
+  lcd.print("Cek Fingerprint...");
   
   finger.begin(57600);
-  
-  // R308 specific: Add delay for module initialization
-  delay(1000);
   
   // Then check if it's ready
   if (finger.verifyPassword()) {
@@ -203,25 +205,25 @@ void checkFingerprintStatus() {
 
     // First check if fingerprint module is detected/connected
     Serial.println("\n==============================");
-    Serial.println("[R308 FINGERPRINT] Module detected");
+    Serial.println("[FINGERPRINT] Module detected");
     
     lcd.clear();  // Clear before new message
     lcd.setCursor(0, 0);
-    lcd.print("R308 Module");
+    lcd.print("Fingerprint");
     lcd.setCursor(0, 1);
-    lcd.print("detected");
+    lcd.print("module detected");
     delay(3000);
 
-    Serial.println("[R308 FINGERPRINT] Status: READY");
+    Serial.println("[FINGERPRINT] Status: READY");
     
     lcd.clear();  // Clear before new message
     lcd.setCursor(0, 0);
-    lcd.print("R308 siap");
+    lcd.print("Fingerprint siap");
     lcd.setCursor(0, 1);
     lcd.print("                ");  // Clear second line
     
     // Consolidated message for ESP32-CAM
-    String statusMessage = "R308_STATUS: Module detected, Status: READY";
+    String statusMessage = "FINGERPRINT_STATUS: Module detected, Status: READY";
     sendToESP32(statusMessage);
     
     // smsBackup.sendFingerprintStatus(true);
@@ -230,25 +232,25 @@ void checkFingerprintStatus() {
 
     // First check if fingerprint module is detected/connected
     Serial.println("\n==============================");
-    Serial.println("[R308 FINGERPRINT] Module not detected");
+    Serial.println("[FINGERPRINT] Module not detected");
     
     lcd.clear();  // Clear before new message
     lcd.setCursor(0, 0);
-    lcd.print("R308 Module");
+    lcd.print("Fingerprint");
     lcd.setCursor(0, 1);
-    lcd.print("not detected");
+    lcd.print("module not detected");
     delay(3000);
 
-    Serial.println("[R308 FINGERPRINT] Status: NOT READY");
+    Serial.println("[FINGERPRINT] Status: NOT READY");
     
     lcd.clear();  // Clear before new message
     lcd.setCursor(0, 0);
-    lcd.print("R308");
+    lcd.print("Fingerprint");
     lcd.setCursor(0, 1);
     lcd.print("belum siap");
     
     // Consolidated message for ESP32-CAM
-    String statusMessage = "R308_STATUS: Module not detected, Status: NOT READY";
+    String statusMessage = "FINGERPRINT_STATUS: Module not detected, Status: NOT READY";
     sendToESP32(statusMessage);
     
     // smsBackup.sendFingerprintStatus(false);
@@ -296,8 +298,10 @@ void sensorVibra() {
       lastVibrationPrint = millis();
     }
     
-    tone(BUZZER_PIN, 2000);
-    delay(1000);
+    // tone(BUZZER_PIN, 2000);
+    digitalWrite(BUZZER_PIN, 4000);
+    // Reduced delay to prevent GPS data loss
+    delay(100);
     noTone(BUZZER_PIN);
     
     // Send vibration alert to ESP32-CAM
@@ -306,12 +310,6 @@ void sensorVibra() {
 }
 
 void fingerprintScan() {
-  // R308 optimized: Check timing for better responsiveness
-  if (millis() - lastFingerprintCheck < fingerprintCheckInterval) {
-    return;
-  }
-  lastFingerprintCheck = millis();
-  
   lcd.setCursor(0, 0);
   lcd.print("Scan Sidik Jari");
   lcd.setCursor(0, 1);
@@ -319,28 +317,22 @@ void fingerprintScan() {
 
   uint8_t p = finger.getImage();
   if (p != FINGERPRINT_OK) {
-    // R308 specific: Different delay for optical sensor
-    if (p == FINGERPRINT_NOFINGER) {
-      fingerDetected = false;
-    }
-    delay(50); // R308 needs slightly longer delay
+    // Reduced delay to prevent GPS data loss
+    delay(1);
     return;
   }
-  
-  // R308 specific: Set finger detected flag
-  fingerDetected = true;
-  
   p = finger.image2Tz();
   if (p != FINGERPRINT_OK) {
-    delay(50); // R308 needs slightly longer delay
+    // Reduced delay to prevent GPS data loss
+    delay(1);
     return;
   }
   p = finger.fingerSearch();
   if (p == FINGERPRINT_OK) {
     Serial.println("\n------------------------------");
-    Serial.println("[R308 FINGERPRINT] Scan started");
-    Serial.println("[R308 FINGERPRINT] Access: GRANTED");
-    Serial.print("[R308 FINGERPRINT] ID: ");
+    Serial.println("[FINGERPRINT] Scan started");
+    Serial.println("[FINGERPRINT] Access: GRANTED");
+    Serial.print("[FINGERPRINT] ID: ");
     Serial.println(finger.fingerID);
     
     lcd.clear();
@@ -366,15 +358,15 @@ void fingerprintScan() {
     lcd.print("System Ready");
     
     // Consolidated message for ESP32-CAM
-    String accessMessage = "R308_ACCESS_GRANTED: ID=" + String(finger.fingerID) + ", Door: Unlocked->Locked, Status: Success";
+    String accessMessage = "ACCESS_GRANTED: ID=" + String(finger.fingerID) + ", Door: Unlocked->Locked, Status: Success";
     sendToESP32(accessMessage);
     
     Serial.println("------------------------------\n");
   } else if (p == FINGERPRINT_NOTFOUND) {
     // Only print when finger is not found (not for every scan attempt)
     Serial.println("\n------------------------------");
-    Serial.println("[R308 FINGERPRINT] Scan started");
-    Serial.print("[R308 FINGERPRINT] Access: DENIED. Code: ");
+    Serial.println("[FINGERPRINT] Scan started");
+    Serial.print("[FINGERPRINT] Access: DENIED. Code: ");
     Serial.println(p);
     
     lcd.clear();
@@ -392,7 +384,7 @@ void fingerprintScan() {
     lcd.clear();
     
     // Consolidated message for ESP32-CAM
-    String accessMessage = "R308_ACCESS_DENIED: Code=" + String(p) + ", Door: Locked, Status: Failed";
+    String accessMessage = "ACCESS_DENIED: Code=" + String(p) + ", Door: Locked, Status: Failed";
     sendToESP32(accessMessage);
     
     Serial.println("------------------------------\n");
@@ -400,44 +392,235 @@ void fingerprintScan() {
 }
 
 void gpsNeo6() {
-  while (Serial2.available()) {
-    chr = Serial2.read();
-    gps.encode(chr);
-  }
+  static unsigned long lastCheck = 0;
+  static unsigned long rawDataCount = 0;
+  static unsigned long validSentences = 0;
   
-  bool currentGpsValid = gps.location.isValid();
-  
-  // Only print GPS data when status changes or when valid data is available
-  if (currentGpsValid != lastGpsValid || (currentGpsValid && millis() % 10000 < 100)) {
-    if (currentGpsValid) {
-      Serial.println("\n******** GPS DATA ********");
-      Serial.print("Latitude : ");
-      Serial.println(gps.location.lat(), 6);
-      Serial.print("Longitude: ");
-      Serial.println(gps.location.lng(), 6);
-      Serial.print("Altitude : ");
-      Serial.print(gps.altitude.meters());
-      Serial.println(" m");
-      
-      // Consolidated GPS message for ESP32-CAM
-      String gpsMessage = "GPS_DATA: Lat=" + String(gps.location.lat(), 6) + 
-                         ", Lng=" + String(gps.location.lng(), 6) + 
-                         ", Alt=" + String(gps.altitude.meters()) + "m";
-      sendToESP32(gpsMessage);
-      
-      Serial.println("**************************\n");
-    } else {
-      Serial.println("\n******** GPS DATA ********");
-      Serial.println("GPS belum lock satelit..");
-      
-      // Consolidated GPS status message for ESP32-CAM
-      String gpsMessage = "GPS_STATUS: No satellite signal, GPS not locked";
-      sendToESP32(gpsMessage);
-      
-      Serial.println("**************************\n");
+  // Read and process GPS data continuously (exactly like working diagnostic file)
+  while (Serial2.available() > 0) {
+    char c = Serial2.read();
+    rawDataCount++;
+    
+    // Display raw characters (first 100 chars only to avoid spam)
+    if (rawDataCount <= 100) {
+      Serial.print(c);
     }
-    lastGpsValid = currentGpsValid;
+    
+    // Try to encode the character - this is the critical part
+    if (gps.encode(c)) {
+      validSentences++;
+      displayGpsInfo();
+    }
   }
+  
+  // Display diagnostics every 10 seconds (less frequent to avoid GPS interruption)
+  if (millis() - lastCheck > 10000) {
+    lastCheck = millis();
+    
+    Serial.println(F("\n=== GPS DIAGNOSTIC INFO ==="));
+    Serial.print(F("Raw characters received: "));
+    Serial.println(rawDataCount);
+    Serial.print(F("Characters processed by GPS library: "));
+    Serial.println(gps.charsProcessed());
+    Serial.print(F("Valid sentences decoded: "));
+    Serial.println(validSentences);
+    Serial.print(F("Failed checksum count: "));
+    Serial.println(gps.failedChecksum());
+    Serial.print(F("Passed checksum count: "));
+    Serial.println(gps.passedChecksum());
+    
+    if (rawDataCount == 0) {
+      Serial.println(F("\n*** NO DATA RECEIVED ***"));
+      Serial.println(F("Possible issues:"));
+      Serial.println(F("1. Check power connections (VCC to 5V, GND to GND)"));
+      Serial.println(F("2. Verify TX/RX connections are not swapped"));
+      Serial.println(F("3. GPS module may be faulty"));
+      Serial.println(F("4. Try different baud rate (38400 or 115200)"));
+      
+      // Send diagnostic status to ESP32-CAM
+      String diagnosticMessage = "GPS_DIAGNOSTIC: No data received, check connections";
+      sendToESP32(diagnosticMessage);
+      
+    } else if (gps.charsProcessed() == 0) {
+      Serial.println(F("\n*** RECEIVING DATA BUT NOT GPS FORMAT ***"));
+      Serial.println(F("Data might be at wrong baud rate or corrupted"));
+      Serial.println(F("Try changing baud rate to 38400 or 115200"));
+      
+      // Send diagnostic status to ESP32-CAM
+      String diagnosticMessage = "GPS_DIAGNOSTIC: Data received but not GPS format, check baud rate";
+      sendToESP32(diagnosticMessage);
+      
+    } else if (validSentences == 0) {
+      Serial.println(F("\n*** RECEIVING GPS DATA BUT NO VALID SENTENCES ***"));
+      Serial.println(F("GPS is working but may need time to get satellite fix"));
+      Serial.println(F("Move to an open area with clear sky view"));
+      
+      // Send diagnostic status to ESP32-CAM
+      String diagnosticMessage = "GPS_DIAGNOSTIC: GPS data received but no valid sentences, waiting for satellite fix";
+      sendToESP32(diagnosticMessage);
+      
+    } else {
+      Serial.println(F("\n*** GPS IS WORKING CORRECTLY ***"));
+      
+      // Send diagnostic status to ESP32-CAM
+      String diagnosticMessage = "GPS_DIAGNOSTIC: GPS working correctly, " + String(validSentences) + " valid sentences";
+      sendToESP32(diagnosticMessage);
+    }
+    
+    Serial.println(F("=======================\n"));
+  }
+  
+  // Extended timeout for initial detection
+  if (millis() > 30000 && rawDataCount == 0) {
+    Serial.println(F("\n*** 30 SECONDS - NO DATA RECEIVED ***"));
+    Serial.println(F("Please check:"));
+    Serial.println(F("1. Power connections"));
+    Serial.println(F("2. TX/RX wiring"));
+    Serial.println(F("3. Try different baud rates"));
+    
+    // Send critical diagnostic status to ESP32-CAM
+    String criticalMessage = "GPS_CRITICAL: 30 seconds no data, check hardware connections";
+    sendToESP32(criticalMessage);
+    
+    // Try different baud rates
+    Serial.println(F("\nTrying different baud rates..."));
+    
+    uint32_t baudRates[] = {4800, 9600, 38400, 115200};
+    for (int i = 0; i < 4; i++) {
+      Serial.print(F("Testing baud rate: "));
+      Serial.println(baudRates[i]);
+      Serial2.end();
+      delay(100);
+      Serial2.begin(baudRates[i]);
+      delay(2000);
+      
+      int testCount = 0;
+      while (Serial2.available() > 0 && testCount < 50) {
+        Serial.print((char)Serial2.read());
+        testCount++;
+      }
+      
+      if (testCount > 0) {
+        Serial.print(F("\n*** FOUND DATA AT BAUD RATE: "));
+        Serial.print(baudRates[i]);
+        Serial.println(F(" ***"));
+        Serial.println(F("Update your code with this baud rate!"));
+        
+        // Send baud rate discovery to ESP32-CAM
+        String baudMessage = "GPS_BAUD_DISCOVERY: Found data at baud rate " + String(baudRates[i]);
+        sendToESP32(baudMessage);
+        
+        // Reset to original baud rate for now
+        Serial2.end();
+        delay(100);
+        Serial2.begin(GPSBaud);
+        break;
+      }
+    }
+    
+    if (rawDataCount == 0) {
+      Serial.println(F("\nNo data found at any baud rate."));
+      Serial.println(F("Check hardware connections."));
+      
+      // Send final diagnostic status to ESP32-CAM
+      String finalMessage = "GPS_FINAL_DIAGNOSTIC: No data at any baud rate, check hardware";
+      sendToESP32(finalMessage);
+    }
+  }
+}
+
+void displayGpsInfo() {
+  Serial.println(F("\n=== GPS LOCATION DATA ==="));
+  
+  // Latitude
+  Serial.print(F("Latitude: "));
+  if (gps.location.isValid()) {
+    Serial.print(gps.location.lat(), 6);
+    Serial.println(F(" degrees"));
+  } else {
+    Serial.println(F("INVALID"));
+  }
+  
+  // Longitude
+  Serial.print(F("Longitude: "));
+  if (gps.location.isValid()) {
+    Serial.print(gps.location.lng(), 6);
+    Serial.println(F(" degrees"));
+  } else {
+    Serial.println(F("INVALID"));
+  }
+  
+  // Altitude
+  Serial.print(F("Altitude: "));
+  if (gps.altitude.isValid()) {
+    Serial.print(gps.altitude.meters(), 2);
+    Serial.println(F(" meters"));
+  } else {
+    Serial.println(F("INVALID"));
+  }
+  
+  // Additional useful information
+  Serial.print(F("Satellites: "));
+  if (gps.satellites.isValid()) {
+    Serial.println(gps.satellites.value());
+  } else {
+    Serial.println(F("INVALID"));
+  }
+  
+  // Date and Time
+  Serial.print(F("Date/Time: "));
+  if (gps.date.isValid() && gps.time.isValid()) {
+    Serial.print(gps.date.month());
+    Serial.print(F("/"));
+    Serial.print(gps.date.day());
+    Serial.print(F("/"));
+    Serial.print(gps.date.year());
+    Serial.print(F(" "));
+    
+    if (gps.time.hour() < 10) Serial.print(F("0"));
+    Serial.print(gps.time.hour());
+    Serial.print(F(":"));
+    if (gps.time.minute() < 10) Serial.print(F("0"));
+    Serial.print(gps.time.minute());
+    Serial.print(F(":"));
+    if (gps.time.second() < 10) Serial.print(F("0"));
+    Serial.print(gps.time.second());
+    Serial.println(F(" UTC"));
+  } else {
+    Serial.println(F("INVALID"));
+  }
+  
+  // CSV format output for easy data logging
+  Serial.print(F("CSV: "));
+  if (gps.location.isValid() && gps.altitude.isValid()) {
+    Serial.print(gps.location.lat(), 6);
+    Serial.print(F(","));
+    Serial.print(gps.location.lng(), 6);
+    Serial.print(F(","));
+    Serial.print(gps.altitude.meters(), 2);
+  } else {
+    Serial.print(F("INVALID,INVALID,INVALID"));
+  }
+  Serial.println();
+  
+  // Send GPS data to ESP32-CAM only if requested
+  if (gpsRequested) {
+    if (gps.location.isValid()) {
+      String gpsMessage = "GPS_DATA: Latitude=" + String(gps.location.lat(), 6) + 
+                         ", Longitude=" + String(gps.location.lng(), 6) + 
+                         ", Altitude=" + String(gps.altitude.meters()) + "m" +
+                         ", Satellite=" + String(gps.satellites.value());
+      sendToESP32(gpsMessage);
+      Serial.println(F("[GPS] Data sent to ESP32-CAM"));
+    } else {
+      String gpsMessage = "GPS_STATUS: No satellite signal, Satellites=" + String(gps.satellites.value());
+      sendToESP32(gpsMessage);
+      Serial.println(F("[GPS] Status sent to ESP32-CAM"));
+    }
+    gpsRequested = false; // Reset request flag
+  }
+  
+  Serial.println(F("========================"));
 }
 
 // void handleTelegramCommands() {
@@ -595,19 +778,19 @@ void gpsNeo6() {
 //   }
 // }
 
-// Add this function to enroll a new fingerprint for R308
+// Add this function to enroll a new fingerprint
 void enrollFingerprint(uint8_t id) {
   Serial.println("\n==============================");
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("Enroll R308 ID:");
+  lcd.print("Enroll Finger ID:");
   lcd.setCursor(0, 1);
   lcd.print(id);
-  Serial.print("[R308 ENROLL] Finger ID: ");
+  Serial.print("[ENROLL] Finger ID: ");
   Serial.println(id);
   
   // Consolidated enrollment start message
-  String enrollMessage = "R308_ENROLL_START: ID=" + String(id) + ", Status: Starting enrollment";
+  String enrollMessage = "ENROLL_START: ID=" + String(id) + ", Status: Starting enrollment";
   sendToESP32(enrollMessage);
   
   delay(3000);
@@ -615,7 +798,7 @@ void enrollFingerprint(uint8_t id) {
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("Place finger...");
-  Serial.println("[R308 ENROLL] Place finger...");
+  Serial.println("[ENROLL] Place finger...");
   
   while (p != FINGERPRINT_OK) {
     p = finger.getImage();
@@ -623,27 +806,27 @@ void enrollFingerprint(uint8_t id) {
     if (p == FINGERPRINT_NOFINGER) {
       lcd.setCursor(0, 1);
       lcd.print("Waiting...     ");
-      Serial.println("[R308 ENROLL] Waiting for finger...");
+      Serial.println("[ENROLL] Waiting for finger...");
     } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
       lcd.setCursor(0, 1);
       lcd.print("Comm error     ");
-      Serial.println("[R308 ENROLL] Communication error");
+      Serial.println("[ENROLL] Communication error");
     } else if (p == FINGERPRINT_IMAGEFAIL) {
       lcd.setCursor(0, 1);
       lcd.print("Imaging error  ");
-      Serial.println("[R308 ENROLL] Imaging error");
+      Serial.println("[ENROLL] Imaging error");
     }
-    delay(150); // R308 needs longer delay for optical sensor
+    delay(100);
   }
   
   p = finger.image2Tz(1);
   if (p != FINGERPRINT_OK) {
     lcd.setCursor(0, 1);
     lcd.print("Image->Tz1 fail");
-    Serial.println("[R308 ENROLL] Image to template 1 failed");
+    Serial.println("[ENROLL] Image to template 1 failed");
     
     // Consolidated error message
-    String errorMessage = "R308_ENROLL_ERROR: Step=Image2Tz1, Code=" + String(p) + ", Status: Failed";
+    String errorMessage = "ENROLL_ERROR: Step=Image2Tz1, Code=" + String(p) + ", Status: Failed";
     sendToESP32(errorMessage);
     
     delay(2000);
@@ -654,7 +837,7 @@ void enrollFingerprint(uint8_t id) {
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("Remove finger  ");
-  Serial.println("[R308 ENROLL] Remove finger");
+  Serial.println("[ENROLL] Remove finger");
   delay(2000);
   
   while (finger.getImage() != FINGERPRINT_NOFINGER);
@@ -664,23 +847,23 @@ void enrollFingerprint(uint8_t id) {
   lcd.print("Place same fing");
   lcd.setCursor(0, 1);
   lcd.print("again...       ");
-  Serial.println("[R308 ENROLL] Place same finger again...");
+  Serial.println("[ENROLL] Place same finger again...");
   
   p = -1;
   while (p != FINGERPRINT_OK) {
     p = finger.getImage();
     if (p == FINGERPRINT_OK) break;
-    delay(150); // R308 needs longer delay for optical sensor
+    delay(100);
   }
   
   p = finger.image2Tz(2);
   if (p != FINGERPRINT_OK) {
     lcd.setCursor(0, 1);
     lcd.print("Image->Tz2 fail");
-    Serial.println("[R308 ENROLL] Image to template 2 failed");
+    Serial.println("[ENROLL] Image to template 2 failed");
     
     // Consolidated error message
-    String errorMessage = "R308_ENROLL_ERROR: Step=Image2Tz2, Code=" + String(p) + ", Status: Failed";
+    String errorMessage = "ENROLL_ERROR: Step=Image2Tz2, Code=" + String(p) + ", Status: Failed";
     sendToESP32(errorMessage);
     
     delay(2000);
@@ -692,10 +875,10 @@ void enrollFingerprint(uint8_t id) {
   if (p != FINGERPRINT_OK) {
     lcd.setCursor(0, 1);
     lcd.print("Model fail     ");
-    Serial.println("[R308 ENROLL] Model creation failed");
+    Serial.println("[ENROLL] Model creation failed");
     
     // Consolidated error message
-    String errorMessage = "R308_ENROLL_ERROR: Step=CreateModel, Code=" + String(p) + ", Status: Failed";
+    String errorMessage = "ENROLL_ERROR: Step=CreateModel, Code=" + String(p) + ", Status: Failed";
     sendToESP32(errorMessage);
     
     delay(2000);
@@ -707,229 +890,28 @@ void enrollFingerprint(uint8_t id) {
   if (p == FINGERPRINT_OK) {
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print("R308 Enroll Success!");
+    lcd.print("Enroll Success!");
     lcd.setCursor(0, 1);
     lcd.print("ID: ");
     lcd.print(id);
-    Serial.print("[R308 ENROLL] Success! ID: ");
+    Serial.print("[ENROLL] Success! ID: ");
     Serial.println(id);
     
     // Consolidated success message
-    String successMessage = "R308_ENROLL_SUCCESS: ID=" + String(id) + ", Status: Fingerprint enrolled successfully";
+    String successMessage = "ENROLL_SUCCESS: ID=" + String(id) + ", Status: Fingerprint enrolled successfully";
     sendToESP32(successMessage);
     
   } else {
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print("R308 Enroll Failed! ");
-    Serial.println("[R308 ENROLL] Failed!");
+    lcd.print("Enroll Failed! ");
+    Serial.println("[ENROLL] Failed!");
     
     // Consolidated failure message
-    String failureMessage = "R308_ENROLL_FAILED: ID=" + String(id) + ", Code=" + String(p) + ", Status: Storage failed";
+    String failureMessage = "ENROLL_FAILED: ID=" + String(id) + ", Code=" + String(p) + ", Status: Storage failed";
     sendToESP32(failureMessage);
   }
   delay(2000);
-  Serial.println("==============================\n");
-}
-
-// R308 specific configuration function
-void configureR308() {
-  Serial.println("\n==============================");
-  Serial.println("[R308] Configuring module...");
-  
-  // Get system parameters for R308 optical sensor
-  uint8_t p = finger.getParameters();
-  if (p == FINGERPRINT_OK) {
-    Serial.println("[R308] Parameters retrieved successfully");
-    Serial.print("[R308] Status register: 0x");
-    Serial.println(finger.status_reg, HEX);
-    Serial.print("[R308] System ID: 0x");
-    Serial.println(finger.system_id, HEX);
-    Serial.print("[R308] Capacity: ");
-    Serial.println(finger.capacity);
-    Serial.print("[R308] Security level: ");
-    Serial.println(finger.security_level);
-    Serial.print("[R308] Device address: 0x");
-    Serial.println(finger.device_addr, HEX);
-    Serial.print("[R308] Packet size: ");
-    Serial.println(finger.packet_len);
-    Serial.print("[R308] Baud rate: ");
-    Serial.println(finger.baud_rate);
-  } else {
-    Serial.println("[R308] Failed to get parameters");
-  }
-  
-  Serial.println("[R308] Configuration complete");
-  Serial.println("==============================\n");
-}
-
-// Delete fingerprint function for R308
-void deleteFingerprint(uint8_t id) {
-  Serial.println("\n==============================");
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Delete R308 ID:");
-  lcd.setCursor(0, 1);
-  lcd.print(id);
-  Serial.print("[R308 DELETE] Finger ID: ");
-  Serial.println(id);
-  
-  // Send deletion start message
-  String deleteMessage = "R308_DELETE_START: ID=" + String(id) + ", Status: Starting deletion";
-  sendToESP32(deleteMessage);
-  
-  delay(2000);
-  
-  uint8_t p = finger.deleteModel(id);
-  if (p == FINGERPRINT_OK) {
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Delete Success!");
-    lcd.setCursor(0, 1);
-    lcd.print("ID: ");
-    lcd.print(id);
-    Serial.print("[R308 DELETE] Success! ID: ");
-    Serial.println(id);
-    
-    // Send success message
-    String successMessage = "R308_DELETE_SUCCESS: ID=" + String(id) + ", Status: Fingerprint deleted successfully";
-    sendToESP32(successMessage);
-    
-  } else {
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Delete Failed!");
-    lcd.setCursor(0, 1);
-    lcd.print("Error Code: ");
-    lcd.print(p);
-    Serial.print("[R308 DELETE] Failed! Error: ");
-    Serial.println(p);
-    
-    // Send failure message
-    String failureMessage = "R308_DELETE_FAILED: ID=" + String(id) + ", Code=" + String(p) + ", Status: Deletion failed";
-    sendToESP32(failureMessage);
-  }
-  
-  delay(2000);
-  Serial.println("==============================\n");
-}
-
-// Get R308 module information
-void getR308Info() {
-  Serial.println("\n==============================");
-  Serial.println("[R308] Getting module information...");
-  
-  uint8_t p = finger.getParameters();
-  if (p == FINGERPRINT_OK) {
-    Serial.println("[R308] Module information:");
-    Serial.print("  Status register: 0x");
-    Serial.println(finger.status_reg, HEX);
-    Serial.print("  System ID: 0x");
-    Serial.println(finger.system_id, HEX);
-    Serial.print("  Capacity: ");
-    Serial.println(finger.capacity);
-    Serial.print("  Security level: ");
-    Serial.println(finger.security_level);
-    Serial.print("  Device address: 0x");
-    Serial.println(finger.device_addr, HEX);
-    Serial.print("  Packet size: ");
-    Serial.println(finger.packet_len);
-    Serial.print("  Baud rate: ");
-    Serial.println(finger.baud_rate);
-    
-    // Get template count
-    p = finger.getTemplateCount();
-    if (p == FINGERPRINT_OK) {
-      Serial.print("  Templates stored: ");
-      Serial.println(finger.templateCount);
-    }
-    
-    // Send info to ESP32-CAM
-    String infoMessage = "R308_INFO: Capacity=" + String(finger.capacity) + 
-                        ", Security=" + String(finger.security_level) + 
-                        ", PacketSize=" + String(finger.packet_len) + 
-                        ", BaudRate=" + String(finger.baud_rate) +
-                        ", Templates=" + String(finger.templateCount);
-    sendToESP32(infoMessage);
-  } else {
-    Serial.println("[R308] Failed to get module information");
-    sendToESP32("R308_INFO_ERROR: Failed to retrieve module parameters");
-  }
-  
-  Serial.println("==============================\n");
-}
-
-// Get template count function
-void getTemplateCount() {
-  Serial.println("\n==============================");
-  Serial.println("[R308] Getting template count...");
-  
-  uint8_t p = finger.getTemplateCount();
-  if (p == FINGERPRINT_OK) {
-    Serial.print("[R308] Templates stored: ");
-    Serial.println(finger.templateCount);
-    
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Templates: ");
-    lcd.print(finger.templateCount);
-    lcd.setCursor(0, 1);
-    lcd.print("Capacity: ");
-    lcd.print(finger.capacity);
-    
-    // Send to ESP32-CAM
-    String countMessage = "R308_TEMPLATE_COUNT: " + String(finger.templateCount) + "/" + String(finger.capacity);
-    sendToESP32(countMessage);
-  } else {
-    Serial.println("[R308] Failed to get template count");
-    sendToESP32("R308_TEMPLATE_COUNT_ERROR: Failed to retrieve count");
-  }
-  
-  delay(3000);
-  Serial.println("==============================\n");
-}
-
-// Clear all templates function
-void clearAllTemplates() {
-  Serial.println("\n==============================");
-  Serial.println("[R308] Clearing all templates...");
-  
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Clear All");
-  lcd.setCursor(0, 1);
-  lcd.print("Templates...");
-  
-  // Send clear start message
-  sendToESP32("R308_CLEAR_START: Clearing all templates");
-  
-  uint8_t p = finger.emptyDatabase();
-  if (p == FINGERPRINT_OK) {
-    Serial.println("[R308] All templates cleared successfully");
-    
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("All Templates");
-    lcd.setCursor(0, 1);
-    lcd.print("Cleared!");
-    
-    // Send success message
-    sendToESP32("R308_CLEAR_SUCCESS: All templates cleared successfully");
-  } else {
-    Serial.println("[R308] Failed to clear templates");
-    
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("Clear Failed!");
-    lcd.setCursor(0, 1);
-    lcd.print("Error Code: ");
-    lcd.print(p);
-    
-    // Send failure message
-    sendToESP32("R308_CLEAR_FAILED: Error code " + String(p));
-  }
-  
-  delay(3000);
   Serial.println("==============================\n");
 }
 

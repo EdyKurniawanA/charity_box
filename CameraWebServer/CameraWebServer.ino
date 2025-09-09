@@ -39,14 +39,15 @@
 // ===========================
 // Enter your WiFi credentials
 // ===========================
-// const char *ssid = "esp32-iot";
-// const char *password = "esp32iot";
-const char *ssid = "Stampan";
-const char *password = "1234567890";
+const char *ssid = "esp32-iot";
+const char *password = "esp32iot";
+// const char *ssid = "Stampan";
+// const char *password = "1234567890";
 
 // Telegram Bot credentials
 const char* botToken = "7950984672:AAGn7jHn4fqM12_8pwgR6wqFZzz_GNpvyYo";
-const char* chatId = "8084143922";
+// const char* chatId = "8084143922";
+const char* chatId = "5638142909";
 WiFiClientSecure client;
 UniversalTelegramBot bot(botToken, client);
 
@@ -86,6 +87,8 @@ void sendGreetingToTelegram() {
 unsigned long lastBotCheck = 0;
 const unsigned long botCheckInterval = 2000; // 2 seconds
 String pendingCommand = "";
+unsigned long gpsRequestTime = 0;
+const unsigned long gpsTimeout = 30000; // 30 seconds timeout for GPS requests
 
 void handleNewMessages(int numNewMessages) {
   for (int i = 0; i < numNewMessages; i++) {
@@ -100,6 +103,8 @@ void handleNewMessages(int numNewMessages) {
       Serial.println("[Bot] /gps command received");
       Serial.println("REQUEST_GPS"); // Send request to Mega
       pendingCommand = "gps";
+      gpsRequestTime = millis(); // Set request time for timeout
+      sendTelegram("📍 Meminta data GPS dari Arduino Mega...\nTunggu sebentar untuk mendapatkan lokasi.");
     } else if (text.startsWith("/enroll")) {
       Serial.println("[Bot] /enroll command received");
       handleEnrollCommand(text);
@@ -227,11 +232,15 @@ void sendSystemStatus() {
   status += "📶 WiFi: Terhubung\n";
   status += "📷 Kamera: Siap\n";
   status += "🤖 Bot Telegram: Aktif\n";
-  status += "📱 R308 Sidik Jari: Siap\n\n";
-  status += "Gunakan /enroll <id> untuk mendaftarkan sidik jari baru\n";
-  status += "Gunakan /delete <id> untuk menghapus sidik jari\n";
-  status += "Gunakan /capture untuk mengambil foto\n";
-  status += "Gunakan /gps untuk mendapatkan lokasi";
+  status += "📱 R308 Sidik Jari: Siap\n";
+  status += "🛰️ GPS Neo 8M: Terintegrasi\n\n";
+  status += "Perintah yang Tersedia:\n";
+  status += "• /enroll <id> - Daftar sidik jari baru\n";
+  status += "• /delete <id> - Hapus sidik jari\n";
+  status += "• /capture - Ambil foto\n";
+  status += "• /gps - Dapatkan lokasi GPS\n";
+  status += "• /test - Uji komunikasi\n";
+  status += "• /help - Bantuan lengkap";
   
   sendTelegram(status);
 }
@@ -247,7 +256,7 @@ void sendHelpMessage() {
   help += "   Rentang ID: 1-127\n\n";
   help += "/test - Uji komunikasi dengan Arduino Mega\n\n";
   help += "/capture - Ambil dan kirim foto\n\n";
-  help += "/gps - Dapatkan lokasi GPS saat ini\n\n";
+  help += "/gps - Dapatkan lokasi GPS saat ini (dengan timeout 30 detik)\n\n";
   help += "/status - Dapatkan status sistem\n\n";
   help += "/help - Tampilkan pesan bantuan ini\n\n";
   help += "Tips:\n";
@@ -412,17 +421,51 @@ void setup() {
 }
 
 void loop() {
+  // Check for GPS request timeout
+  if (pendingCommand == "gps" && millis() - gpsRequestTime > gpsTimeout) {
+    sendTelegram("⏰ Timeout: GPS request tidak mendapat respons dalam 30 detik.\nCoba lagi atau periksa koneksi Arduino Mega.");
+    pendingCommand = "";
+    Serial.println("[GPS] Request timeout");
+  }
+  
   // Listen for Serial commands from Arduino Mega
   if (Serial.available()) {
     String command = Serial.readStringUntil('\n');
     command.trim();
     if (command.length() > 0) {
-      if (command.startsWith("GPS:")) {
-        // GPS:<lat>,<lng>,<alt>
+      if (command.startsWith("GPS_DATA:")) {
+        // GPS_DATA: Lat=..., Lng=..., Alt=...m, Sat=...
         if (pendingCommand == "gps") {
-          sendTelegram("📍 Lokasi GPS: " + command.substring(4));
+          String gpsInfo = command.substring(9); // Remove "GPS_DATA:" prefix
+          sendTelegram("📍 Lokasi GPS:\n" + gpsInfo);
           pendingCommand = "";
         }
+      } else if (command.startsWith("GPS_STATUS:")) {
+        // GPS_STATUS: No satellite signal, Satellites=...
+        if (pendingCommand == "gps") {
+          String gpsStatus = command.substring(11); // Remove "GPS_STATUS:" prefix
+          sendTelegram("📍 Status GPS:\n" + gpsStatus);
+          pendingCommand = "";
+        }
+      } else if (command.startsWith("GPS_DIAGNOSTIC:")) {
+        // GPS_DIAGNOSTIC: ...
+        String gpsDiag = command.substring(15); // Remove "GPS_DIAGNOSTIC:" prefix
+        Serial.println("[GPS Diagnostic] " + gpsDiag);
+      } else if (command.startsWith("GPS_CRITICAL:")) {
+        // GPS_CRITICAL: ...
+        String gpsCritical = command.substring(13); // Remove "GPS_CRITICAL:" prefix
+        sendTelegram("🚨 GPS Critical: " + gpsCritical);
+        Serial.println("[GPS Critical] " + gpsCritical);
+      } else if (command.startsWith("GPS_BAUD_DISCOVERY:")) {
+        // GPS_BAUD_DISCOVERY: ...
+        String gpsBaud = command.substring(19); // Remove "GPS_BAUD_DISCOVERY:" prefix
+        sendTelegram("🔧 GPS Baud Discovery: " + gpsBaud);
+        Serial.println("[GPS Baud Discovery] " + gpsBaud);
+      } else if (command.startsWith("GPS_FINAL_DIAGNOSTIC:")) {
+        // GPS_FINAL_DIAGNOSTIC: ...
+        String gpsFinal = command.substring(21); // Remove "GPS_FINAL_DIAGNOSTIC:" prefix
+        sendTelegram("🔍 GPS Final Diagnostic: " + gpsFinal);
+        Serial.println("[GPS Final Diagnostic] " + gpsFinal);
       } else if (command.startsWith("R308_ENROLL_START:")) {
         // Enrollment started
         sendTelegram("🔄 " + command.substring(18));
